@@ -242,6 +242,21 @@ $xaml = @'
           <Border x:Name="GlowDot" Grid.Column="1" Width="8" Height="8" CornerRadius="4" Background="#3A3148" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
+
+      <Border x:Name="PillStats" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Статистика" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock Text="сколько и что слушал" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="→" FontSize="14" Foreground="#6FD8FF" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -272,6 +287,7 @@ $autoDot = $window.FindName('AutoDot')
 $pillGlow = $window.FindName('PillGlow')
 $glowState = $window.FindName('GlowState')
 $glowDot = $window.FindName('GlowDot')
+$pillStats = $window.FindName('PillStats')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
 $script:trayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MusicTray.lnk'
@@ -498,6 +514,14 @@ $pillGlow.Add_MouseLeftButtonUp({
     Update-Pills
   })
 
+$pillStats.Add_MouseLeftButtonUp({
+    $stats = Join-Path $root 'MusicStats.ps1'
+    if (Test-Path -LiteralPath $stats) {
+      Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $stats + '"') -WindowStyle Hidden
+    }
+    Hide-Panel
+  })
+
 # ---------------------------------------------------------------- показ/скрытие
 function Show-Panel {
   Update-Info
@@ -554,6 +578,13 @@ $miGlow.Add_Click({
     else { Start-Toast; Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII }
     Start-Sleep -Milliseconds 300
     Update-Pills
+  })
+$miStats = $menu.Items.Add('Статистика прослушивания')
+$miStats.Add_Click({
+    $stats = Join-Path $root 'MusicStats.ps1'
+    if (Test-Path -LiteralPath $stats) {
+      Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $stats + '"') -WindowStyle Hidden
+    }
   })
 [void]$menu.Items.Add('-')
 $miExit = $menu.Items.Add('Выход')
