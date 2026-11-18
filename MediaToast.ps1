@@ -251,7 +251,7 @@ $xaml = @'
 
       <Border x:Name="CardBackdrop" Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Opacity="0"
               Background="Transparent" IsHitTestVisible="False"/>
-      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#CE14111C" IsHitTestVisible="False"/>
+      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#B414111C" IsHitTestVisible="False"/>
       <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" IsHitTestVisible="False">
         <Border.Background>
           <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -362,8 +362,65 @@ function Update-CardBackdrop($bitmap) {
     $brush = New-Object Windows.Media.ImageBrush($small)
     $brush.Stretch = [Windows.Media.Stretch]::UniformToFill
     $cardBackdrop.Background = $brush
-    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.34, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
+    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.50, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
     $cardBackdrop.BeginAnimation([Windows.UIElement]::OpacityProperty, $fade)
+  } catch { }
+}
+
+function Update-CardTheme($color) {
+  if (-not $color) { return }
+  try {
+    # фон карточки: тёмная база с подмешанным цветом обложки
+    $mixR = [int](22 * 0.68 + $color.R * 0.32)
+    $mixG = [int](18 * 0.68 + $color.G * 0.32)
+    $mixB = [int](28 * 0.68 + $color.B * 0.32)
+    $deep = [Windows.Media.Color]::FromRgb(15, 12, 21)
+
+    $bg = New-Object Windows.Media.LinearGradientBrush
+    $bg.StartPoint = New-Object Windows.Point(0, 0)
+    $bg.EndPoint = New-Object Windows.Point(1, 1)
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb($mixR, $mixG, $mixB), 0.0)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop($deep, 0.55)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb([int]($mixR * 0.7), [int]($mixG * 0.7), [int]($mixB * 0.7)), 1.0)))
+    $spin = New-Object Windows.Media.RotateTransform
+    $spin.CenterX = 0.5
+    $spin.CenterY = 0.5
+    $bg.RelativeTransform = $spin
+    $card.Background = $bg
+
+    $spinAnim = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(26)))
+    $spinAnim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $spin.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $spinAnim)
+
+    # светящееся кольцо
+    $ringGlow = New-Object Windows.Media.Effects.DropShadowEffect
+    $ringGlow.BlurRadius = 12
+    $ringGlow.ShadowDepth = 0
+    $ringGlow.Opacity = 0.75
+    $ringGlow.Color = $color
+    $ring.Effect = $ringGlow
+    $ring.StrokeThickness = 2.8
+
+    # градиентный заголовок: белый -> подсвеченный цвет обложки
+    $titleBrush = New-Object Windows.Media.LinearGradientBrush
+    $titleBrush.StartPoint = New-Object Windows.Point(0, 0)
+    $titleBrush.EndPoint = New-Object Windows.Point(1, 0)
+    $titleBrush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb(255, 255, 255), 0.0)))
+    $lite = [Windows.Media.Color]::FromRgb(
+      [int](255 * 0.55 + $color.R * 0.45),
+      [int](255 * 0.55 + $color.G * 0.45),
+      [int](255 * 0.55 + $color.B * 0.45))
+    $titleBrush.GradientStops.Add((New-Object Windows.Media.GradientStop($lite, 1.0)))
+    $titleText.Foreground = $titleBrush
+
+    # подсветка полосы прогресса
+    $fillGlow = New-Object Windows.Media.Effects.DropShadowEffect
+    $fillGlow.BlurRadius = 8
+    $fillGlow.ShadowDepth = 0
+    $fillGlow.Opacity = 0.65
+    $fillGlow.Color = $color
+    $progressFill.Effect = $fillGlow
+    $volumeFill.Effect = $fillGlow
   } catch { }
 }
 
@@ -1115,6 +1172,7 @@ $mediaTimer.Add_Tick({
             $script:accentColor = $tint
             try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
             Update-CardBorder $tint
+            Update-CardTheme $tint
             Update-CardBackdrop $track.Art
           }
         }
