@@ -265,6 +265,21 @@ $xaml = @'
           <TextBlock Grid.Column="1" Text="→" FontSize="14" Foreground="#6FD8FF" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
+
+      <Border x:Name="PillWeb" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Веб-панель" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock Text="живой экран в браузере" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="↗" FontSize="14" Foreground="#59F28F" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -297,6 +312,7 @@ $pillGlow = $window.FindName('PillGlow')
 $glowState = $window.FindName('GlowState')
 $glowDot = $window.FindName('GlowDot')
 $pillStats = $window.FindName('PillStats')
+$pillWeb = $window.FindName('PillWeb')
 $headerHit = $window.FindName('HeaderHit')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
@@ -534,6 +550,23 @@ $pillStats.Add_MouseLeftButtonUp({
     Hide-Panel
   })
 
+function Start-WebPanel {
+  $vbs = Join-Path $root 'MusicWeb.vbs'
+  if (-not (Test-Path -LiteralPath $vbs)) { return }
+  $already = $false
+  try { $resp = Invoke-WebRequest 'http://127.0.0.1:8765/api/now' -UseBasicParsing -TimeoutSec 2; if ($resp.StatusCode -eq 200) { $already = $true } } catch { }
+  if (-not $already) {
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('"' + $vbs + '"')
+    Start-Sleep -Milliseconds 900
+  }
+  Start-Process 'http://127.0.0.1:8765/'
+}
+
+$pillWeb.Add_MouseLeftButtonUp({
+    Start-WebPanel
+    Hide-Panel
+  })
+
 # клик по шапке — скопировать «Исполнитель — Название»
 $script:copyTimer = New-Object Windows.Threading.DispatcherTimer
 $script:copyTimer.Interval = [TimeSpan]::FromMilliseconds(1600)
@@ -674,6 +707,8 @@ $miStats.Add_Click({
       Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $stats + '"') -WindowStyle Hidden
     }
   })
+$miWeb = $menu.Items.Add('Веб-панель музыки')
+$miWeb.Add_Click({ Start-WebPanel })
 [void]$menu.Items.Add('-')
 $miExit = $menu.Items.Add('Выход')
 $miExit.Add_Click({
