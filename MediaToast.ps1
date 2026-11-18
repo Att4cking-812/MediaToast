@@ -589,11 +589,11 @@ function Set-ClickThrough($win) {
 function New-GlowFill([string]$side, $color, [string]$kind) {
   $brush = New-Object Windows.Media.LinearGradientBrush
   if ($kind -eq 'core') {
-    $stops = @(@(170, 0.0), @(90, 0.45), @(0, 1.0))
+    $stops = @(@(240, 0.0), @(120, 0.6), @(0, 1.0))
   } elseif ($kind -eq 'bloom') {
-    $stops = @(@(85, 0.0), @(45, 0.35), @(0, 1.0))
+    $stops = @(@(34, 0.0), @(14, 0.40), @(0, 1.0))
   } else {
-    $stops = @(@(200, 0.0), @(110, 0.20), @(40, 0.55), @(0, 1.0))
+    $stops = @(@(150, 0.0), @(66, 0.35), @(16, 0.7), @(0, 1.0))
   }
   foreach ($s in $stops) {
     $col = [Windows.Media.Color]::FromArgb([int]$s[0], $color.R, $color.G, $color.B)
@@ -642,9 +642,9 @@ function New-GlowWindow([string]$side) {
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
 
-  $bloomT = 220
-  $softT = 84
-  $coreT = 16
+  $bloomT = 150
+  $softT = 52
+  $coreT = 4
   switch ($side) {
     'top'    { $bloom.VerticalAlignment = 'Top'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
     'bottom' { $bloom.VerticalAlignment = 'Bottom'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
@@ -658,7 +658,7 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 84
+  $thick = 150
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
