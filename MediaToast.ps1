@@ -375,6 +375,17 @@ public static class WinEx {
 }
 "@
 
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class HotKeys {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+}
+"@
+
 function Set-ClickThrough($win) {
   try {
     $helper = New-Object Windows.Interop.WindowInteropHelper($win)
@@ -794,8 +805,7 @@ $hideTimer.Add_Tick({
 
 # смена текста на видимой карточке: короткий кроссфейд
 $script:pendingText = $null
-$swapTimer = New-Object Windows.Threading.DispatcherTimer
-$swapTimer.Add_Tick({
+$swapTimer = New-Object Windows.Threading.DispatcherTimer$swapTimer.Add_Tick({
     try {
       $swapTimer.Stop()
       $pending = $script:pendingText
@@ -810,6 +820,40 @@ $swapTimer.Add_Tick({
       $script:pendingText = $null
     } catch { }
   })
+
+# смена обложки на видимой карточке: лёгкий «переворот»
+$script:pendingArt = $null
+$artTimer = New-Object Windows.Threading.DispatcherTimer
+$artTimer.Add_Tick({
+    try {
+      $artTimer.Stop()
+      $pending = $script:pendingArt
+      if (-not $pending) { $pending = $null }
+      Set-Art $pending
+      $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(140)))
+      $fadeIn.EasingFunction = $easeOut
+      $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
+      $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(0.94, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(180)))
+      $zoomIn.EasingFunction = $easeOut
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+      $script:pendingArt = $null
+    } catch { }
+  })
+
+function Fade-Art($art) {
+  try {
+    $fadeOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
+    $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeOut)
+    $zoomOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.94, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
+    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomOut)
+    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomOut)
+    $script:pendingArt = $art
+    $artTimer.Stop()
+    $artTimer.Interval = [TimeSpan]::FromMilliseconds(95)
+    $artTimer.Start()
+  } catch { }
+}
 
 function Show-Toast([string]$mode) {
   try {
@@ -880,7 +924,8 @@ $mediaTimer.Add_Tick({
           if ($window.Visibility -ne 'Visible' -or $script:volumeMode) { Show-Toast 'track' }
           else {
             # карточка уже на экране — кроссфейд текста и обновление прогресса
-            Crossfade-Text $track.Title $(if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }) $(if ($track.Album) { $track.Album } else { 'Сингл' }) $track.Art
+            Fade-Art $track.Art
+            Crossfade-Text $track.Title $(if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }) $(if ($track.Album) { $track.Album } else { 'Сингл' }) $null
             Update-Progress
             $holdTimer.Stop()
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
@@ -994,10 +1039,61 @@ $script:lastVolume = [BrickyardAudio.Endpoint]::GetVolumePercent()
 $script:lastMute = [BrickyardAudio.Endpoint]::GetMute()
 Write-Log ('started v2 session=' + ($null -ne $sessionManager) + ' volume=' + $script:lastVolume + ' track=' + $(if ($script:lastTrack) { $script:lastTrack.Title } else { '-' }))
 
+# ---------------------------------------------------------------- горячие клавиши
+$script:hotkeyHook = $null
+
+function Toggle-PlayPause {
+  if (-not $script:currentSession) { return }
+  try {
+    $info = $script:currentSession.GetPlaybackInfo()
+    if ($info.PlaybackStatus.ToString() -eq 'Playing') { [void](Await ($script:currentSession.TryPauseAsync()) ([bool])) }
+    else { [void](Await ($script:currentSession.TryPlayAsync()) ([bool])) }
+  } catch { }
+}
+
+function Skip-Track([string]$dir) {
+  if (-not $script:currentSession) { return }
+  try {
+    if ($dir -eq 'next') { [void](Await ($script:currentSession.TrySkipNextAsync()) ([bool])) }
+    else { [void](Await ($script:currentSession.TrySkipPreviousAsync()) ([bool])) }
+  } catch { }
+}
+
+function Register-Hotkeys {
+  try {
+    $helper = New-Object Windows.Interop.WindowInteropHelper($window)
+    $hwnd = $helper.Handle
+    if ($hwnd -eq [IntPtr]::Zero) { Write-Log 'hotkeys: no hwnd'; return }
+    $source = [Windows.Interop.HwndSource]::FromHwnd($hwnd)
+    if (-not $script:hotkeyHook) {
+      $script:hotkeyHook = {
+        param($hwndArg, $msg, $wParam, $lParam, [ref]$handled)
+        if ($msg -ne 0x0312) { return }
+        try {
+          Write-Log ('hotkey id=' + $wParam)
+          switch ([int]$wParam) {
+            1 { Toggle-PlayPause }
+            2 { Skip-Track 'prev' }
+            3 { Skip-Track 'next' }
+          }
+          $handled.Value = $true
+        } catch { }
+      }
+      [void]$source.AddHook($script:hotkeyHook)
+    }
+    $mods = 0x4003
+    $ok1 = [HotKeys]::RegisterHotKey($hwnd, 1, $mods, 0x20)
+    $ok2 = [HotKeys]::RegisterHotKey($hwnd, 2, $mods, 0x25)
+    $ok3 = [HotKeys]::RegisterHotKey($hwnd, 3, $mods, 0x27)
+    Write-Log ('hotkeys registered: ' + $ok1 + ',' + $ok2 + ',' + $ok3)
+  } catch { Write-Log ('hotkeys fail: ' + $_.Exception.Message) }
+}
+
 $app = New-Object Windows.Application
 $app.Add_Startup({
     $window.Show()
     $window.Visibility = 'Hidden'
+    Register-Hotkeys
 
     if ($Demo) {
       $art = $null
