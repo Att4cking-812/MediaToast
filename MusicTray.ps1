@@ -371,8 +371,9 @@ $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaT
 $script:trayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MusicTray.lnk'
 $script:toastVbs = Join-Path $root 'MediaToast.vbs'
 $script:trayVbs = Join-Path $root 'MusicTray.vbs'
-$script:glowFlag = Join-Path $root 'glow.on'
+$script:glowFlag = Join-Path $root 'ambilight.on'
 $script:vinylFlag = Join-Path $root 'vinyl.on'
+$script:ambVbs = Join-Path $root 'Ambilight.vbs'
 $script:settingsPath = Join-Path $root 'settings.json'
 
 function Get-ToastAlive {
@@ -402,6 +403,18 @@ function Save-Settings($s) {
   } catch { }
 }
 
+function Start-Ambilight {
+  $pf = Join-Path $root 'ambilight.pid'
+  $alive = $false
+  if (Test-Path -LiteralPath $pf) {
+    $procId = Get-Content -LiteralPath $pf -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($procId -match '^\d+$') { $alive = [bool](Get-Process -Id ([int]$procId) -ErrorAction SilentlyContinue) }
+  }
+  if (-not $alive -and (Test-Path -LiteralPath $script:ambVbs)) {
+    Start-Process -FilePath (Join-Path $env:WINDIR 'System32\wscript.exe') -ArgumentList ('"' + $script:ambVbs + '"')
+  }
+}
+
 function Update-Pills {
   $alive = Get-ToastAlive
   if ($alive) {
@@ -427,7 +440,7 @@ function Update-Pills {
 
   $glow = Test-Path -LiteralPath $script:glowFlag
   if ($glow) {
-    $glowState.Text = 'вкл — в цвет обложки'
+    $glowState.Text = 'вкл — цвета экрана'
     $glowState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
     $glowDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
   } else {
@@ -632,7 +645,7 @@ $pillGlow.Add_MouseLeftButtonUp({
     if (Test-Path -LiteralPath $script:glowFlag) {
       Remove-Item -LiteralPath $script:glowFlag -Force -ErrorAction SilentlyContinue
     } else {
-      Start-Toast
+      Start-Ambilight
       Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII
     }
     Start-Sleep -Milliseconds 400
@@ -824,7 +837,7 @@ $miAuto.Add_Click({ Set-Autostart (-not (Test-Path -LiteralPath $script:startupL
 $miGlow = $menu.Items.Add('Подсветка краёв вкл/выкл')
 $miGlow.Add_Click({
     if (Test-Path -LiteralPath $script:glowFlag) { Remove-Item -LiteralPath $script:glowFlag -Force -ErrorAction SilentlyContinue }
-    else { Start-Toast; Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII }
+    else { Start-Ambilight; Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII }
     Start-Sleep -Milliseconds 300
     Update-Pills
   })
