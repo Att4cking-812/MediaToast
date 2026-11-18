@@ -730,7 +730,7 @@ function Start-GlowBreathing {
               # окно почти непрозрачное: яркостью управляют сами пятна
               $phase = $script:breathT + $offsets[$i]
               $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
-              $op = 0.10 + ($amp * $breath) + ($script:glowLevel * $pulse)
+              $op = 0.12 + (0.42 * $breath) + ($script:glowLevel * 0.35)
             }
             if ($op -lt 0.01) { $op = 0.0 }
             if ($op -gt 0.95) { $op = 0.95 }
