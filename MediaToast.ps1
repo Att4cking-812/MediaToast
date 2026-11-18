@@ -569,19 +569,17 @@ function Start-GlowBreathing {
           # уровень музыки (только сессия плеера)
           $peak = 0.0
           try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
-          $db = 20.0 * [Math]::Log10([Math]::Max($peak, 0.00001))
-          $norm = [Math]::Max(0.0, [Math]::Min(1.0, ($db + 48.0) / 42.0))
-          $target = [Math]::Pow($norm, 0.8)
+          $target = [Math]::Pow([Math]::Min(1.0, $peak / 0.12), 0.7)
           if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
-          else { $script:glowLevel = ($script:glowLevel * 0.88) + ($target * 0.12) }
+          else { $script:glowLevel = ($script:glowLevel * 0.86) + ($target * 0.14) }
 
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
             $phase = $script:breathT + $offsets[$i]
             $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / 3.2)
-            $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.20)
+            $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.26)
             if ($op -lt 0.04) { $op = 0.04 }
-            if ($op -gt 0.55) { $op = 0.55 }
+            if ($op -gt 0.62) { $op = 0.62 }
             $script:glowWindows[$i].Opacity = $op
           }
         } catch { }
