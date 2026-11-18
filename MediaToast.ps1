@@ -365,6 +365,7 @@ $eqBars = @($window.FindName('Eq1'), $window.FindName('Eq2'), $window.FindName('
 # ---------------------------------------------------------------- подсветка краёв
 $script:glowFlag = Join-Path $PSScriptRoot 'glow.on'
 $script:glowWindows = @()
+$script:glowParts = @()
 $script:glowShown = $false
 $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
@@ -405,34 +406,33 @@ function Set-ClickThrough($win) {
   } catch { }
 }
 
-function New-GlowBrush([string]$side, $color) {
+function New-GlowFill([string]$side, $color, [string]$kind) {
   $brush = New-Object Windows.Media.LinearGradientBrush
-  $c0 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
-  $c1 = [Windows.Media.Color]::FromArgb(205, $color.R, $color.G, $color.B)
-  $c2 = [Windows.Media.Color]::FromArgb(120, $color.R, $color.G, $color.B)
-  $c3 = [Windows.Media.Color]::FromArgb(38, $color.R, $color.G, $color.B)
-  $c4 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c0, 0.0)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.06)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.24)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c3, 0.58)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c4, 1.0)))
+  if ($kind -eq 'core') {
+    $stops = @(@(170, 0.0), @(90, 0.45), @(0, 1.0))
+  } else {
+    $stops = @(@(200, 0.0), @(110, 0.20), @(40, 0.55), @(0, 1.0))
+  }
+  foreach ($s in $stops) {
+    $col = [Windows.Media.Color]::FromArgb([int]$s[0], $color.R, $color.G, $color.B)
+    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($col, [double]$s[1])))
+  }
   switch ($side) {
     'top'    { $brush.StartPoint = New-Object Windows.Point(0.5, 0.0); $brush.EndPoint = New-Object Windows.Point(0.5, 1.0) }
     'bottom' { $brush.StartPoint = New-Object Windows.Point(0.5, 1.0); $brush.EndPoint = New-Object Windows.Point(0.5, 0.0) }
     'left'   { $brush.StartPoint = New-Object Windows.Point(0.0, 0.5); $brush.EndPoint = New-Object Windows.Point(1.0, 0.5) }
     'right'  { $brush.StartPoint = New-Object Windows.Point(1.0, 0.5); $brush.EndPoint = New-Object Windows.Point(0.0, 0.5) }
   }
-
-  # лёгкий перелив: средняя точка плавно уходит в соседний оттенок
-  try {
-    $shift = [Windows.Media.Color]::FromArgb(120, $color.B, $color.R, $color.G)
-    $drift = New-Object Windows.Media.Animation.ColorAnimation($c2, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(9)))
-    $drift.AutoReverse = $true
-    $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-    $brush.GradientStops[2].BeginAnimation([Windows.Media.GradientStop]::ColorProperty, $drift)
-  } catch { }
-
+  if ($kind -eq 'soft') {
+    try {
+      $mid = $brush.GradientStops[1]
+      $shift = [Windows.Media.Color]::FromArgb(90, $color.B, $color.R, $color.G)
+      $drift = New-Object Windows.Media.Animation.ColorAnimation($mid.Color, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(10)))
+      $drift.AutoReverse = $true
+      $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+      $mid.BeginAnimation([Windows.Media.GradientStop]::ColorProperty, $drift)
+    } catch { }
+  }
   return $brush
 }
 
@@ -449,24 +449,40 @@ function New-GlowWindow([string]$side) {
   $w.ResizeMode = 'NoResize'
   $w.Opacity = 0
 
-  $rect = New-Object Windows.Shapes.Rectangle
-  $rect.Fill = (New-GlowBrush $side $script:glowColor)
-  $w.Content = $rect
+  $grid = New-Object Windows.Controls.Grid
+  $soft = New-Object Windows.Shapes.Rectangle
+  $soft.Fill = (New-GlowFill $side $script:glowColor 'soft')
+  $core = New-Object Windows.Shapes.Rectangle
+  $core.Fill = (New-GlowFill $side $script:glowColor 'core')
+
+  $softT = 120
+  $coreT = 10
+  switch ($side) {
+    'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
+    'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
+    'left'   { $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT }
+    'right'  { $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT }
+  }
+  [void]$grid.Children.Add($soft)
+  [void]$grid.Children.Add($core)
+  $w.Content = $grid
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 66
+  $thick = 120
 
+  # углы не дублируем: боковые полосы начинаются ниже верхней и кончаются выше нижней
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
     'bottom' { $w.Left = 0; $w.Top = $sh - $thick; $w.Width = $sw; $w.Height = $thick }
-    'left'   { $w.Left = 0; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
-    'right'  { $w.Left = $sw - $thick; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
+    'left'   { $w.Left = 0; $w.Top = $thick; $w.Width = $thick; $w.Height = $sh - (2 * $thick) }
+    'right'  { $w.Left = $sw - $thick; $w.Top = $thick; $w.Width = $thick; $w.Height = $sh - (2 * $thick) }
   }
 
   $w.Show()
   Set-ClickThrough $w
   $w.Visibility = 'Hidden'
+  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core }
   return $w
 }
 
@@ -474,11 +490,10 @@ function Update-GlowColor($color) {
   if (-not $color) { return }
   $script:glowColor = $color
   Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
-  $sides = @('top', 'bottom', 'left', 'right')
-  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+  foreach ($p in $script:glowParts) {
     try {
-      $rect = $script:glowWindows[$i].Content
-      $rect.Fill = (New-GlowBrush $sides[$i] $color)
+      $p.Soft.Fill = (New-GlowFill $p.Side $color 'soft')
+      $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
     } catch { }
   }
 }
@@ -488,8 +503,8 @@ function Start-GlowBreathing {
   if ($vol -lt 0) { $vol = 50 }
   $script:glowVol = $vol
   $factor = 0.8 + 0.4 * ([double]$vol / 100.0)
-  $lo = 0.07 * $factor
-  $hi = 0.24 * $factor
+  $lo = 0.10 * $factor
+  $hi = 0.32 * $factor
   $delays = @(0, 400, 200, 600)
   for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
     $w = $script:glowWindows[$i]
