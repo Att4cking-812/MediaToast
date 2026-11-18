@@ -48,8 +48,15 @@ try { Set-Content -LiteralPath $pidPath -Value $PID -Encoding ASCII } catch { }
 
 # ---------------------------------------------------------------- громкость
 $csPath = Join-Path $PSScriptRoot 'AudioEndpoint.cs'
-try { Add-Type -TypeDefinition ([IO.File]::ReadAllText($csPath, [Text.Encoding]::UTF8)) -Language CSharp -ErrorAction Stop }
-catch { Write-Log ('audio compile fail: ' + $_.Exception.Message) }
+$meterPath = Join-Path $PSScriptRoot 'AppMeter.cs'
+try {
+  $sources = @($csPath)
+  if (Test-Path -LiteralPath $meterPath) { $sources += $meterPath }
+  Add-Type -Path $sources -ErrorAction Stop
+} catch {
+  Write-Log ('audio compile fail: ' + $_.Exception.Message)
+  try { Add-Type -TypeDefinition ([IO.File]::ReadAllText($csPath, [Text.Encoding]::UTF8)) -Language CSharp } catch { }
+}
 
 # ---------------------------------------------------------------- WinRT медиа
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -1197,7 +1204,7 @@ $beatTimer.Add_Tick({
     try {
       if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
       $peak = 0.0
-      try { $peak = [double][BrickyardAudio.Endpoint]::GetPeak() } catch { }
+      try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
       $db = 20.0 * [Math]::Log10([Math]::Max($peak, 0.00001))
       $norm = [Math]::Max(0.0, [Math]::Min(1.0, ($db + 50.0) / 44.0))
       $target = [Math]::Pow($norm, 0.75)
