@@ -616,7 +616,13 @@ function Get-ArtColor($bmp) {
     $maxC = [Math]::Max($r, [Math]::Max($g, $b))
     $minC = [Math]::Min($r, [Math]::Min($g, $b))
     $sat = if ($maxC -le 0) { 0 } else { ($maxC - $minC) / [double]$maxC }
-    if ($sat -lt 0.22) { return [Windows.Media.Color]::FromRgb(111, 216, 255) }
+    # серые и белые обложки: вместо бирюзы — мягкое «серебристое» свечение
+    if ($sat -lt 0.22) {
+      $lum = 0.2126 * $r + 0.7152 * $g + 0.0722 * $b
+      if ($lum -gt 190) { return [Windows.Media.Color]::FromRgb(226, 236, 246) }
+      if ($lum -lt 90) { return [Windows.Media.Color]::FromRgb(146, 166, 188) }
+      return [Windows.Media.Color]::FromRgb(196, 214, 232)
+    }
     if ($maxC -gt 185) {
       $k = 185.0 / $maxC
       $r = [int]($r * $k); $g = [int]($g * $k); $b = [int]($b * $k)
