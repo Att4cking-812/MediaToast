@@ -261,7 +261,7 @@ $xaml = @'
         </Border.Background>
       </Border>
 
-      <Grid Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
+      <Grid x:Name="CoverWrap" Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
         <Ellipse x:Name="RingTrack" Width="84" Height="84" Stroke="#22FFFFFF" StrokeThickness="2" Visibility="Collapsed"/>
         <Path x:Name="Ring" Stroke="#6FD8FF" StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
               Width="84" Height="84" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
@@ -375,17 +375,19 @@ function Update-CardTheme($color) {
   if (-not $color) { return }
   try {
     # фон карточки: тёмная база с подмешанным цветом обложки
+    $alpha = 255
+    if ($script:settings -and [string]$script:settings.cardTheme -eq 'glass') { $alpha = 200 }
     $mixR = [int](22 * 0.68 + $color.R * 0.32)
     $mixG = [int](18 * 0.68 + $color.G * 0.32)
     $mixB = [int](28 * 0.68 + $color.B * 0.32)
-    $deep = [Windows.Media.Color]::FromRgb(15, 12, 21)
+    $deep = [Windows.Media.Color]::FromArgb($alpha, 15, 12, 21)
 
     $bg = New-Object Windows.Media.LinearGradientBrush
     $bg.StartPoint = New-Object Windows.Point(0, 0)
     $bg.EndPoint = New-Object Windows.Point(1, 1)
-    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb($mixR, $mixG, $mixB), 0.0)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb($alpha, $mixR, $mixG, $mixB), 0.0)))
     $bg.GradientStops.Add((New-Object Windows.Media.GradientStop($deep, 0.55)))
-    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb([int]($mixR * 0.7), [int]($mixG * 0.7), [int]($mixB * 0.7)), 1.0)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb($alpha, [int]($mixR * 0.7), [int]($mixG * 0.7), [int]($mixB * 0.7)), 1.0)))
     $spin = New-Object Windows.Media.RotateTransform
     $spin.CenterX = 0.5
     $spin.CenterY = 0.5
@@ -443,6 +445,7 @@ $coverArt = $window.FindName('CoverArt')
 $coverGlyph = $window.FindName('CoverGlyph')
 $ring = $window.FindName('Ring')
 $ringTrack = $window.FindName('RingTrack')
+$coverWrap = $window.FindName('CoverWrap')
 $artRotate = $window.FindName('ArtRotate')
 $artSlide = $window.FindName('ArtSlide')
 $coverBorder = $window.FindName('CoverBorder')
@@ -481,6 +484,7 @@ function Get-DefaultSettings {
     breathSeconds   = 3.2
     glowSensitivity = 0.12
     glowPreset      = 'neon'
+    cardTheme       = 'neon'
   }
 }
 
@@ -505,6 +509,10 @@ function Apply-Settings {
     if ($card) {
       $w = [double]$s.cardWidth
       if ($w -ge 260 -and $w -le 720) { $card.Width = $w }
+    }
+    if ($coverWrap) {
+      if ([string]$s.cardTheme -eq 'minimal') { $coverWrap.Visibility = 'Collapsed' }
+      else { $coverWrap.Visibility = 'Visible' }
     }
   } catch { }
 
