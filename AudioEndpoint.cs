@@ -20,8 +20,7 @@ namespace BrickyardAudio {
     }
 
     [ComImport, Guid("5CDF2C82-841E-4546-9722-0CF74078229A"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
-    internal interface IAudioEndpointVolume {
-        int RegisterControlChangeNotify(IntPtr pNotify);
+    internal interface IAudioEndpointVolume {        int RegisterControlChangeNotify(IntPtr pNotify);
         int UnregisterControlChangeNotify(IntPtr pNotify);
         int GetChannelCount(out uint pnChannelCount);
         int SetMasterVolumeLevel(float fLevelDB, Guid pguidEventContext);
@@ -41,8 +40,36 @@ namespace BrickyardAudio {
         int GetVolumeRange(out float pflVolumeMindB, out float pflVolumeMaxdB, out float pflVolumeIncrementdB);
     }
 
+    [ComImport, Guid("C02216F6-8C67-4B5B-9D00-D008E73E0064"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+    internal interface IAudioMeterInformation {
+        int GetPeakValue(out float pfPeak);
+    }
+
     public static class Endpoint {
         private static IAudioEndpointVolume _vol;
+        private static IAudioMeterInformation _meter;
+
+        private static IAudioMeterInformation Meter() {
+            if (_meter != null) return _meter;
+            var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+            IMMDevice device;
+            enumerator.GetDefaultAudioEndpoint(EDataFlow.eRender, ERole.eMultimedia, out device);
+            Guid iid = typeof(IAudioMeterInformation).GUID;
+            object o;
+            device.Activate(ref iid, 1, IntPtr.Zero, out o);
+            _meter = (IAudioMeterInformation)o;
+            return _meter;
+        }
+
+        public static float GetPeak() {
+            try {
+                float peak;
+                Meter().GetPeakValue(out peak);
+                if (peak < 0f) peak = 0f;
+                if (peak > 1f) peak = 1f;
+                return peak;
+            } catch { _meter = null; return 0f; }
+        }
 
         private static IAudioEndpointVolume Vol() {
             if (_vol != null) return _vol;
