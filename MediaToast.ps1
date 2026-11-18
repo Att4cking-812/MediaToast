@@ -1523,6 +1523,15 @@ function Register-Hotkeys {
 }
 
 $app = New-Object Windows.Application
+$app.Add_DispatcherUnhandledException({
+    param($sender, $e)
+    try { Write-Log ('dispatcher error: ' + $e.Exception.Message) } catch { }
+    $e.Handled = $true
+  })
+[AppDomain]::CurrentDomain.add_UnhandledException({
+    param($sender, $e)
+    try { Write-Log ('unhandled: ' + $e.ExceptionObject.ToString()) } catch { }
+  })
 $app.Add_Startup({
     $window.Show()
     $window.Visibility = 'Hidden'
