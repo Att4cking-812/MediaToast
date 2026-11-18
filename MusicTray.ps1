@@ -280,6 +280,21 @@ $xaml = @'
           <TextBlock Grid.Column="1" Text="↗" FontSize="14" Foreground="#59F28F" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
+
+      <Border x:Name="PillVinyl" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Винил" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock x:Name="VinylState" Text="круглая обложка" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <Border x:Name="VinylDot" Grid.Column="1" Width="8" Height="8" CornerRadius="4" Background="#3A3148" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -313,6 +328,9 @@ $glowState = $window.FindName('GlowState')
 $glowDot = $window.FindName('GlowDot')
 $pillStats = $window.FindName('PillStats')
 $pillWeb = $window.FindName('PillWeb')
+$pillVinyl = $window.FindName('PillVinyl')
+$vinylState = $window.FindName('VinylState')
+$vinylDot = $window.FindName('VinylDot')
 $headerHit = $window.FindName('HeaderHit')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
@@ -320,6 +338,7 @@ $script:trayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MusicTray
 $script:toastVbs = Join-Path $root 'MediaToast.vbs'
 $script:trayVbs = Join-Path $root 'MusicTray.vbs'
 $script:glowFlag = Join-Path $root 'glow.on'
+$script:vinylFlag = Join-Path $root 'vinyl.on'
 
 function Get-ToastAlive {
   $p = Get-Content -LiteralPath $toastPidPath -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -359,6 +378,17 @@ function Update-Pills {
     $glowState.Text = 'выкл'
     $glowState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(135,122,154))
     $glowDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(58,49,72))
+  }
+
+  $vinyl = Test-Path -LiteralPath $script:vinylFlag
+  if ($vinyl) {
+    $vinylState.Text = 'вкл — круг крутится'
+    $vinylState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
+    $vinylDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
+  } else {
+    $vinylState.Text = 'выкл'
+    $vinylState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(135,122,154))
+    $vinylDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(58,49,72))
   }
 }
 
@@ -561,6 +591,17 @@ function Start-WebPanel {
   }
   Start-Process 'http://127.0.0.1:8765/'
 }
+
+$pillVinyl.Add_MouseLeftButtonUp({
+    if (Test-Path -LiteralPath $script:vinylFlag) {
+      Remove-Item -LiteralPath $script:vinylFlag -Force -ErrorAction SilentlyContinue
+    } else {
+      Start-Toast
+      Set-Content -LiteralPath $script:vinylFlag -Value '1' -Encoding ASCII
+    }
+    Start-Sleep -Milliseconds 300
+    Update-Pills
+  })
 
 $pillWeb.Add_MouseLeftButtonUp({
     Start-WebPanel
