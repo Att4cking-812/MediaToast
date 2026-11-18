@@ -242,6 +242,10 @@ $xaml = @'
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
+      <Border x:Name="CardBackdrop" Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Opacity="0"
+              Background="Transparent" IsHitTestVisible="False"/>
+      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#CE14111C" IsHitTestVisible="False"/>
+
       <Grid Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
         <Ellipse x:Name="RingTrack" Width="84" Height="84" Stroke="#22FFFFFF" StrokeThickness="2" Visibility="Collapsed"/>
         <Path x:Name="Ring" Stroke="#6FD8FF" StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
@@ -322,6 +326,7 @@ $xaml = @'
 
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
 $card = $window.FindName('Card')
+$cardBackdrop = $window.FindName('CardBackdrop')
 $cardBorderBrush = $window.FindName('CardBorderBrush')
 $borderSpin = $window.FindName('BorderSpin')
 
@@ -330,6 +335,21 @@ try {
   $spinAnim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
   $borderSpin.BeginAnimation([Windows.Media.Animation.RotateTransform]::AngleProperty, $spinAnim)
 } catch { }
+
+function Update-CardBackdrop($bitmap) {
+  try {
+    if (-not $cardBackdrop) { return }
+    if (-not $bitmap) { $cardBackdrop.Opacity = 0; return }
+    $scale = New-Object Windows.Media.ScaleTransform(0.28, 0.28)
+    $small = New-Object Windows.Media.Imaging.TransformedBitmap($bitmap, $scale)
+    $small.Freeze()
+    $brush = New-Object Windows.Media.ImageBrush($small)
+    $brush.Stretch = [Windows.Media.Stretch]::UniformToFill
+    $cardBackdrop.Background = $brush
+    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.34, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
+    $cardBackdrop.BeginAnimation([Windows.UIElement]::OpacityProperty, $fade)
+  } catch { }
+}
 
 function Update-CardBorder($color) {
   if (-not $color -or -not $cardBorderBrush) { return }
@@ -370,6 +390,7 @@ $script:glowShown = $false
 $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
+$script:glowStatic = $false
 $script:tintKey = ''
 $script:accentColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 
@@ -387,11 +408,24 @@ public static class WinEx {
 Add-Type @"
 using System;
 using System.Runtime.InteropServices;
-public static class HotKeys {
-  [DllImport("user32.dll", SetLastError=true)]
-  public static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
-  [DllImport("user32.dll", SetLastError=true)]
-  public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+public static class FgWin {
+  [StructLayout(LayoutKind.Sequential)] public struct RECT { public int Left, Top, Right, Bottom; }
+  [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
+  [DllImport("user32.dll")] public static extern bool GetWindowRect(IntPtr hWnd, out RECT lpRect);
+  [DllImport("user32.dll")] public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+
+  public static bool IsFullscreen(uint myPid, int screenW, int screenH) {
+    IntPtr h = GetForegroundWindow();
+    if (h == IntPtr.Zero) return false;
+    uint pid;
+    GetWindowThreadProcessId(h, out pid);
+    if (pid == myPid) return false;
+    RECT r;
+    if (!GetWindowRect(h, out r)) return false;
+    int w = r.Right - r.Left;
+    int hh = r.Bottom - r.Top;
+    return (w >= screenW - 4) && (hh >= screenH - 4);
+  }
 }
 "@
 
@@ -967,7 +1001,7 @@ function Show-Toast([string]$mode) {
     $holdTimer.Start()
     Write-Log ('show ' + $mode + ' ' + $titleText.Text)
   } catch {
-    Write-Log ('show fail: ' + $_.Exception.Message)
+    Write-Log ('show fail: ' + $_.Exception.Message + ' @ ' + ($_.InvocationInfo.PositionMessage -replace "`r?`n", ' '))
   }
 }
 
@@ -1010,6 +1044,7 @@ $mediaTimer.Add_Tick({
             $script:accentColor = $tint
             try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
             Update-CardBorder $tint
+            Update-CardBackdrop $track.Art
           }
         }
         if ($script:glowShown -and $track.Art -and $script:glowKey -ne $track.Key) {
@@ -1105,6 +1140,23 @@ $glowTimer.Add_Tick({
       } elseif ($on -and $script:glowShown) {
         $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
         if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Start-GlowBreathing }
+
+        # в полноэкранной игре замораживаем анимацию, чтобы не дёргать композитор
+        $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
+        $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
+        $fs = $false
+        try { $fs = [FgWin]::IsFullscreen([uint32]$PID, [int]$sw, [int]$sh) } catch { }
+        if ($fs -and -not $script:glowStatic) {
+          $script:glowStatic = $true
+          foreach ($w in $script:glowWindows) {
+            try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Opacity = 0.20 } catch { }
+          }
+          Write-Log 'glow: static (fullscreen game)'
+        } elseif (-not $fs -and $script:glowStatic) {
+          $script:glowStatic = $false
+          Start-GlowBreathing
+          Write-Log 'glow: breathing'
+        }
       }
     } catch { }
   })
@@ -1112,6 +1164,7 @@ $glowTimer.Start()
 
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
+Write-Log ('names: textCol=' + ($null -ne $textCol) + ' ring=' + ($null -ne $ring) + ' backdrop=' + ($null -ne $cardBackdrop) + ' progressRow=' + ($null -ne $progressRow))
 if ($script:lastTrack) { $script:lastKey = $script:lastTrack.Key; $script:lastStatus = $script:lastTrack.Status }
 Set-Equalizer ($script:lastStatus -eq 'Playing')
 $script:lastVolume = [BrickyardAudio.Endpoint]::GetVolumePercent()
