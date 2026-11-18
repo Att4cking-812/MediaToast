@@ -648,11 +648,15 @@ function Start-GlowBreathing {
           else { $script:glowLevel = ($script:glowLevel * 0.86) + ($target * 0.14) }
 
           $offsets = @(0.0, 0.34, 0.18, 0.52)
+          $paused = ($script:lastStatus -ne 'Playing')
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-            $phase = $script:breathT + $offsets[$i]
-            $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / 3.2)
-            $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.26)
-            if ($op -lt 0.04) { $op = 0.04 }
+            if ($paused) { $op = 0.015 }
+            else {
+              $phase = $script:breathT + $offsets[$i]
+              $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / 3.2)
+              $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.26)
+            }
+            if ($op -lt 0.01) { $op = 0.015 }
             if ($op -gt 0.62) { $op = 0.62 }
             $script:glowWindows[$i].Opacity = $op
           }
@@ -1192,6 +1196,17 @@ $mediaTimer.Add_Tick({
         }
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
+        if ($script:vinylOn) {
+          if ($isPlaying) {
+            if (-not $script:vinylSpin) {
+              $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
+              $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+            }
+            $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+          } else {
+            $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
+          }
+        }
         Track-Listening $track $isPlaying
         if ($track.Art -and $script:tintKey -ne $track.Key) {
           $script:tintKey = $track.Key
