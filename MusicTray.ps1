@@ -264,9 +264,6 @@ $xaml = @'
           <TextBlock Grid.Column="1" Text="→" FontSize="14" Foreground="#6FD8FF" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
-
-      <TextBlock Text="Ctrl+Alt+Space — пауза · Ctrl+Alt+← → — трек" FontFamily="Segoe UI" FontSize="9.5"
-                 Foreground="#5F5470" Margin="2,10,0,0" HorizontalAlignment="Center"/>
     </StackPanel>
   </Border>
 </Window>
