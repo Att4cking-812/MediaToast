@@ -1273,6 +1273,31 @@ $glowTimer.Add_Tick({
   })
 $glowTimer.Start()
 
+# пульс обложки и кольца от баса, пока карточка на экране
+$script:pulseLevel = 0.0
+$pulseTimer = New-Object Windows.Threading.DispatcherTimer
+$pulseTimer.Interval = [TimeSpan]::FromMilliseconds(50)
+$pulseTimer.Add_Tick({
+    try {
+      if ($window.Visibility -ne 'Visible' -or $script:lastStatus -ne 'Playing') { return }
+      if (-not $artScale -or -not $ring) { return }
+      $peak = 0.0
+      try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
+      $target = [Math]::Pow([Math]::Min(1.0, $peak / 0.12), 0.7)
+      if ($target -gt $script:pulseLevel) { $script:pulseLevel = $target }
+      else { $script:pulseLevel = ($script:pulseLevel * 0.82) + ($target * 0.18) }
+
+      $scale = 1.0 + ($script:pulseLevel * 0.035)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $null)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $null)
+      $artScale.ScaleX = $scale
+      $artScale.ScaleY = $scale
+
+      if ($ring.Effect) { $ring.Effect.Opacity = 0.45 + ($script:pulseLevel * 0.5) }
+    } catch { }
+  })
+$pulseTimer.Start()
+
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
 if ($script:lastTrack) { $script:lastKey = $script:lastTrack.Key; $script:lastStatus = $script:lastTrack.Status }
