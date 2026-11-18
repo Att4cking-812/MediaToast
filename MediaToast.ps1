@@ -489,8 +489,8 @@ function New-GlowWindow([string]$side) {
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
 
-  $softT = 120
-  $coreT = 10
+  $softT = 84
+  $coreT = 16
   switch ($side) {
     'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
     'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
@@ -503,14 +503,13 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 120
+  $thick = 84
 
-  # углы не дублируем: боковые полосы начинаются ниже верхней и кончаются выше нижней
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
     'bottom' { $w.Left = 0; $w.Top = $sh - $thick; $w.Width = $sw; $w.Height = $thick }
-    'left'   { $w.Left = 0; $w.Top = $thick; $w.Width = $thick; $w.Height = $sh - (2 * $thick) }
-    'right'  { $w.Left = $sw - $thick; $w.Top = $thick; $w.Width = $thick; $w.Height = $sh - (2 * $thick) }
+    'left'   { $w.Left = 0; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
+    'right'  { $w.Left = $sw - $thick; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
   }
 
   $w.Show()
@@ -1140,23 +1139,6 @@ $glowTimer.Add_Tick({
       } elseif ($on -and $script:glowShown) {
         $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
         if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Start-GlowBreathing }
-
-        # в полноэкранной игре замораживаем анимацию, чтобы не дёргать композитор
-        $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
-        $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-        $fs = $false
-        try { $fs = [FgWin]::IsFullscreen([uint32]$PID, [int]$sw, [int]$sh) } catch { }
-        if ($fs -and -not $script:glowStatic) {
-          $script:glowStatic = $true
-          foreach ($w in $script:glowWindows) {
-            try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Opacity = 0.20 } catch { }
-          }
-          Write-Log 'glow: static (fullscreen game)'
-        } elseif (-not $fs -and $script:glowStatic) {
-          $script:glowStatic = $false
-          Start-GlowBreathing
-          Write-Log 'glow: breathing'
-        }
       }
     } catch { }
   })
