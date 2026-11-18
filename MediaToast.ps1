@@ -637,12 +637,20 @@ function Set-Equalizer([bool]$playing) {
 
 function Crossfade-Text([string]$title, [string]$artist, [string]$album, $art) {
   try {
-    $fadeOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
-    $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeOut)
-    $script:pendingText = @{ title = $title; artist = $artist; album = $album; art = $art }
+    # без ухода в ноль: текст обновляется сразу и мягко проявляется
+    $titleText.Text = $title
+    $artistText.Text = $artist
+    $albumText.Text = $album
+    foreach ($el in @($titleText, $artistText, $albumText)) {
+      $el.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+      $el.Opacity = 1
+    }
+    $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.35, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(180)))
+    $fadeIn.EasingFunction = $easeOut
+    $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
+    $script:pendingText = $null
     $swapTimer.Stop()
-    $swapTimer.Interval = [TimeSpan]::FromMilliseconds(95)
-    $swapTimer.Start()
   } catch { }
 }
 
@@ -814,6 +822,7 @@ $swapTimer = New-Object Windows.Threading.DispatcherTimer$swapTimer.Add_Tick({
       $artistText.Text = $pending.artist
       $albumText.Text = $pending.album
       if ($pending.art) { Set-Art $pending.art }
+      Write-Log ('swap text: [' + $pending.title + '] colOp=' + [math]::Round($textCol.Opacity,2) + ' titleOp=' + [math]::Round($titleText.Opacity,2))
       $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(150)))
       $fadeIn.EasingFunction = $easeOut
       $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
@@ -843,15 +852,17 @@ $artTimer.Add_Tick({
 
 function Fade-Art($art) {
   try {
-    $fadeOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
-    $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeOut)
-    $zoomOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.94, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomOut)
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomOut)
-    $script:pendingArt = $art
+    Set-Art $art
+    $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.45, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
+    $fadeIn.EasingFunction = $easeOut
+    $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
+    $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(1.06, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(220)))
+    $zoomIn.EasingFunction = $easeOut
+    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
+    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+    $script:pendingArt = $null
     $artTimer.Stop()
-    $artTimer.Interval = [TimeSpan]::FromMilliseconds(95)
-    $artTimer.Start()
   } catch { }
 }
 
@@ -973,6 +984,20 @@ $progressTimer.Interval = [TimeSpan]::FromMilliseconds(250)
 $progressTimer.Add_Tick({
     try {
       if (-not $script:volumeMode -and $window.Visibility -eq 'Visible' -and $script:lastStatus -eq 'Playing') { Update-Progress }
+      # страховка: если текст застрял невидимым (прерванный кроссфейд) — вернуть
+      if ($window.Visibility -eq 'Visible' -and -not $script:pendingText -and $textCol.Opacity -lt 0.5) {
+        $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+        $textCol.Opacity = 1
+        Write-Log 'text opacity restored'
+      }
+      if ($window.Visibility -eq 'Visible' -and -not $script:pendingText) {
+        $bad = @()
+        foreach ($el in @($titleText, $artistText, $albumText)) {
+          if ($el.Opacity -lt 0.5) { $el.BeginAnimation([Windows.UIElement]::OpacityProperty, $null); $el.Opacity = 1; $bad += 'el' }
+        }
+        if ($titleText.Text.Length -eq 0) { $bad += 'empty' }
+        if ($bad.Count -gt 0) { Write-Log ('watchdog: ' + ($bad -join ',')) }
+      }
     } catch { }
   })
 $progressTimer.Start()
