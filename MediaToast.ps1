@@ -201,7 +201,7 @@ $xaml = @'
         </Grid>
       </Border>
 
-      <Grid Grid.Column="1" VerticalAlignment="Center">
+      <Grid x:Name="TextCol" Grid.Column="1" VerticalAlignment="Center">
         <Grid.RowDefinitions>
           <RowDefinition Height="Auto"/>
           <RowDefinition Height="Auto"/>
@@ -211,11 +211,17 @@ $xaml = @'
         </Grid.RowDefinitions>
 
         <TextBlock x:Name="TitleText" Grid.Row="0" FontFamily="Segoe UI Semibold" FontSize="15"
-                   Foreground="#F4EFFA" TextTrimming="CharacterEllipsis" MaxWidth="256"/>
+                   Foreground="#F4EFFA" TextTrimming="CharacterEllipsis" MaxWidth="256">
+          <TextBlock.RenderTransform><TranslateTransform x:Name="TitleT" Y="0"/></TextBlock.RenderTransform>
+        </TextBlock>
         <TextBlock x:Name="ArtistText" Grid.Row="1" FontFamily="Segoe UI" FontSize="12.5"
-                   Foreground="#B6A8C6" TextTrimming="CharacterEllipsis" MaxWidth="256" Margin="0,2,0,0"/>
+                   Foreground="#B6A8C6" TextTrimming="CharacterEllipsis" MaxWidth="256" Margin="0,2,0,0">
+          <TextBlock.RenderTransform><TranslateTransform x:Name="ArtistT" Y="0"/></TextBlock.RenderTransform>
+        </TextBlock>
         <TextBlock x:Name="AlbumText" Grid.Row="2" FontFamily="Segoe UI" FontSize="11"
-                   Foreground="#877A9A" TextTrimming="CharacterEllipsis" MaxWidth="256" Margin="0,3,0,0"/>
+                   Foreground="#877A9A" TextTrimming="CharacterEllipsis" MaxWidth="256" Margin="0,3,0,0">
+          <TextBlock.RenderTransform><TranslateTransform x:Name="AlbumT" Y="0"/></TextBlock.RenderTransform>
+        </TextBlock>
 
         <Grid x:Name="ProgressRow" Grid.Row="3" Margin="0,8,0,0" Visibility="Collapsed">
           <Grid.ColumnDefinitions>
@@ -226,8 +232,15 @@ $xaml = @'
             <Border x:Name="ProgressFill" Height="4" CornerRadius="2" HorizontalAlignment="Left"
                     Background="#6FD8FF" Width="0"/>
           </Border>
-          <TextBlock x:Name="ProgressText" Grid.Column="1" FontFamily="Segoe UI Semibold" FontSize="11"
-                     Foreground="#877A9A" Margin="8,0,0,0" VerticalAlignment="Center" TextAlignment="Right" MinWidth="96"/>
+          <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+            <StackPanel x:Name="Eq" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,8,0">
+              <Border x:Name="Eq1" Width="2.5" Height="4" Background="#59F28F" CornerRadius="1" Margin="0,0,2,0" VerticalAlignment="Bottom"/>
+              <Border x:Name="Eq2" Width="2.5" Height="8" Background="#59F28F" CornerRadius="1" Margin="0,0,2,0" VerticalAlignment="Bottom"/>
+              <Border x:Name="Eq3" Width="2.5" Height="6" Background="#59F28F" CornerRadius="1" VerticalAlignment="Bottom"/>
+            </StackPanel>
+            <TextBlock x:Name="ProgressText" FontFamily="Segoe UI Semibold" FontSize="11"
+                       Foreground="#877A9A" VerticalAlignment="Center" TextAlignment="Right" MinWidth="96"/>
+          </StackPanel>
         </Grid>
 
         <Grid x:Name="VolumeRow" Grid.Row="4" Margin="0,7,0,0" Visibility="Collapsed">
@@ -263,6 +276,12 @@ $volumeText = $window.FindName('VolumeText')
 $progressRow = $window.FindName('ProgressRow')
 $progressFill = $window.FindName('ProgressFill')
 $progressText = $window.FindName('ProgressText')
+$textCol = $window.FindName('TextCol')
+$titleT = $window.FindName('TitleT')
+$artistT = $window.FindName('ArtistT')
+$albumT = $window.FindName('AlbumT')
+$eq = $window.FindName('Eq')
+$eqBars = @($window.FindName('Eq1'), $window.FindName('Eq2'), $window.FindName('Eq3'))
 
 # предсозданные кисти — меньше мусора при обновлении
 $brushGreen = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89, 242, 143))
@@ -305,6 +324,43 @@ function Set-Art($bitmap) {
     $coverArt.Background = [Windows.Media.Brushes]::Transparent
     $coverGlyph.Visibility = 'Visible'
   }
+}
+
+$script:eqPlaying = $null
+
+function Set-Equalizer([bool]$playing) {
+  try {
+    if ($script:eqPlaying -eq $playing) { return }
+    $script:eqPlaying = $playing
+    if ($playing) {
+      $tops = @(14.0, 9.0, 16.0)
+      $durations = @(420, 560, 360)
+      for ($i = 0; $i -lt $eqBars.Count; $i++) {
+        $anim = New-Object Windows.Media.Animation.DoubleAnimation(3.0, $tops[$i], [Windows.Duration]([TimeSpan]::FromMilliseconds($durations[$i])))
+        $anim.AutoReverse = $true
+        $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+        $anim.EasingFunction = $easeOut
+        $eqBars[$i].BeginAnimation([Windows.FrameworkElement]::HeightProperty, $anim)
+      }
+    } else {
+      $heights = @(4.0, 8.0, 6.0)
+      for ($i = 0; $i -lt $eqBars.Count; $i++) {
+        $eqBars[$i].BeginAnimation([Windows.FrameworkElement]::HeightProperty, $null)
+        $eqBars[$i].Height = $heights[$i]
+      }
+    }
+  } catch { }
+}
+
+function Crossfade-Text([string]$title, [string]$artist, [string]$album, $art) {
+  try {
+    $fadeOut = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(90)))
+    $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeOut)
+    $script:pendingText = @{ title = $title; artist = $artist; album = $album; art = $art }
+    $swapTimer.Stop()
+    $swapTimer.Interval = [TimeSpan]::FromMilliseconds(95)
+    $swapTimer.Start()
+  } catch { }
 }
 
 function Update-VolumeBar([int]$percent, [bool]$muted) {
@@ -401,6 +457,26 @@ function Animate-Show([bool]$fresh) {
     $artZoom.EasingFunction = $easeOut
     $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $artZoom)
     $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $artZoom)
+
+    # каскад: заголовок, исполнитель, альбом, полоска
+    $stagger = @(
+      @{ el = $titleText; t = $titleT; delay = 0.0 },
+      @{ el = $artistText; t = $artistT; delay = 70.0 },
+      @{ el = $albumText; t = $albumT; delay = 140.0 },
+      @{ el = $progressRow; t = $null; delay = 210.0 }
+    )
+    foreach ($item in $stagger) {
+      $op = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(230)))
+      $op.BeginTime = [TimeSpan]::FromMilliseconds($item.delay)
+      $op.EasingFunction = $easeOut
+      $item.el.BeginAnimation([Windows.UIElement]::OpacityProperty, $op)
+      if ($item.t) {
+        $ty = New-Object Windows.Media.Animation.DoubleAnimation(9.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(260)))
+        $ty.BeginTime = [TimeSpan]::FromMilliseconds($item.delay)
+        $ty.EasingFunction = $easeOut
+        $item.t.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $ty)
+      }
+    }
   }
 }
 
@@ -444,11 +520,32 @@ $hideTimer.Add_Tick({
     } catch { Write-Log ('hide tick: ' + $_.Exception.Message) }
   })
 
+# смена текста на видимой карточке: короткий кроссфейд
+$script:pendingText = $null
+$swapTimer = New-Object Windows.Threading.DispatcherTimer
+$swapTimer.Add_Tick({
+    try {
+      $swapTimer.Stop()
+      $pending = $script:pendingText
+      if (-not $pending) { return }
+      $titleText.Text = $pending.title
+      $artistText.Text = $pending.artist
+      $albumText.Text = $pending.album
+      if ($pending.art) { Set-Art $pending.art }
+      $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(150)))
+      $fadeIn.EasingFunction = $easeOut
+      $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
+      $script:pendingText = $null
+    } catch { }
+  })
+
 function Show-Toast([string]$mode) {
   try {
     $track = Get-DisplayTrack
     $script:volumeMode = ($mode -eq 'volume')
     $isPause = ($mode -eq 'pause')
+    $textCol.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
+    $textCol.Opacity = 1
 
     if ($track -and $track.Title) {
       $titleText.Text = $track.Title
@@ -510,11 +607,8 @@ $mediaTimer.Add_Tick({
           $script:lastKey = $track.Key
           if ($window.Visibility -ne 'Visible' -or $script:volumeMode) { Show-Toast 'track' }
           else {
-            # карточка уже на экране — просто обновляем содержимое без нового слайда
-            $titleText.Text = $track.Title
-            $artistText.Text = if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }
-            $albumText.Text = if ($track.Album) { $track.Album } else { 'Сингл' }
-            Set-Art $track.Art
+            # карточка уже на экране — кроссфейд текста и обновление прогресса
+            Crossfade-Text $track.Title $(if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }) $(if ($track.Album) { $track.Album } else { 'Сингл' }) $track.Art
             Update-Progress
             $holdTimer.Stop()
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
@@ -526,6 +620,7 @@ $mediaTimer.Add_Tick({
           Show-Toast 'pause'
         }
         $script:lastStatus = $track.Status
+        Set-Equalizer $isPlaying
       } else {
         $script:lastStatus = ''
       }
@@ -585,6 +680,7 @@ $reconnectTimer.Start()
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
 if ($script:lastTrack) { $script:lastKey = $script:lastTrack.Key; $script:lastStatus = $script:lastTrack.Status }
+Set-Equalizer ($script:lastStatus -eq 'Playing')
 $script:lastVolume = [BrickyardAudio.Endpoint]::GetVolumePercent()
 $script:lastMute = [BrickyardAudio.Endpoint]::GetMute()
 Write-Log ('started v2 session=' + ($null -ne $sessionManager) + ' volume=' + $script:lastVolume + ' track=' + $(if ($script:lastTrack) { $script:lastTrack.Title } else { '-' }))
