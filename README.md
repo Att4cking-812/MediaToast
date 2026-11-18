@@ -54,6 +54,27 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\MediaToast.ps1 -Demo -Demo
 | Частота опроса громкости | `$volumeTimer.Interval` | 260 мс |
 | Частота прогресса | `$progressTimer.Interval` | 250 мс |
 
+### settings.json
+
+Файл рядом со скриптами, подхватывается на лету:
+
+```json
+{
+  "cardLeft": 24,
+  "cardTop": 24,
+  "cardWidth": 384,
+  "breathSeconds": 3.2,
+  "glowSensitivity": 0.12,
+  "glowPreset": "neon"
+}
+```
+
+- `cardLeft` / `cardTop` — отступ карточки от левого верхнего угла.
+- `cardWidth` — ширина карточки (260–720).
+- `breathSeconds` — скорость дыхания подсветки.
+- `glowSensitivity` — чем меньше, тем сильнее реагирует на тихую музыку.
+- `glowPreset` — `calm`, `neon` или `fire`. Переключается и кнопкой «Режим подсветки» в панели.
+
 ## Как это работает
 
 - **Медиа** — WinRT `Windows.Media.Control` (SMTC). `IAsyncOperation` ждётся через `AsTask` и рефлексию, потому что PowerShell 5.1 не умеет await напрямую.
