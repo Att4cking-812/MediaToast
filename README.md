@@ -27,7 +27,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File .\MediaToast.ps1 -Demo -DemoArt .\screenshot.png
 ```
 
-Остановить: `.\uninstall.ps1` (убирает автозагрузку) или `Остановить плашку.cmd`.
+Остановить: `.\uninstall.ps1` (убирает автозагрузку) или `.\Stop-MediaToast.cmd`.
 
 ## Настройка
 
