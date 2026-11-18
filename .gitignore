@@ -1,6 +1,13 @@
 # логи и рантайм
 toast.log
+tray.log
 toast.pid
+tray.pid
+glow.on
+
+# статистика прослушивания (личные данные)
+listening.tsv
+stats.html
 
 # служебное
 *.bak
