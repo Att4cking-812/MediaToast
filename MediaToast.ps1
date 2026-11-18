@@ -597,8 +597,9 @@ function Get-ArtColor($bmp) {
     $pixels = New-Object byte[] ($stride * $h)
     $bmp.CopyPixels($pixels, $stride, 0)
     $sumR = 0.0; $sumG = 0.0; $sumB = 0.0; $sumW = 0.0
-    $stepX = [Math]::Max(1, [int]($w / 14))
-    $stepY = [Math]::Max(1, [int]($h / 14))
+    $buckets = @{}
+    $stepX = [Math]::Max(1, [int]($w / 16))
+    $stepY = [Math]::Max(1, [int]($h / 16))
     for ($y = 0; $y -lt $h; $y += $stepY) {
       for ($x = 0; $x -lt $w; $x += $stepX) {
         $i = $y * $stride + $x * 4
@@ -607,19 +608,37 @@ function Get-ArtColor($bmp) {
         $r = [double]$pixels[$i + 2]
         $max = [Math]::Max($r, [Math]::Max($g, $b))
         $min = [Math]::Min($r, [Math]::Min($g, $b))
-        $sat = if ($max -le 0) { 0 } else { ($max - $min) / $max }
-        # взвешенное среднее: цветные пиксели весят больше, но тон сохраняется
-        $weight = 0.12 + ($sat * $sat) * ($max / 255.0)
-        $sumR += $r * $weight
-        $sumG += $g * $weight
-        $sumB += $b * $weight
-        $sumW += $weight
+        if ($max -le 12) { continue }
+        $sat = ($max - $min) / $max
+        if ($sat -lt 0.15) { continue }
+
+        $delta = $max - $min
+        if ($delta -le 0) { continue }
+        if ($max -eq $r) { $hue = 60.0 * ((($g - $b) / $delta) % 6.0) }
+        elseif ($max -eq $g) { $hue = 60.0 * ((($b - $r) / $delta) + 2.0) }
+        else { $hue = 60.0 * ((($r - $g) / $delta) + 4.0) }
+        if ($hue -lt 0) { $hue += 360.0 }
+
+        $bucket = [int][Math]::Floor($hue / 30.0) % 12
+        $weight = $sat * ($max / 255.0)
+        if (-not $buckets.ContainsKey($bucket)) {
+          $buckets[$bucket] = [pscustomobject]@{ W = 0.0; R = 0.0; G = 0.0; B = 0.0 }
+        }
+        $bb = $buckets[$bucket]
+        $bb.W += $weight
+        $bb.R += $r * $weight
+        $bb.G += $g * $weight
+        $bb.B += $b * $weight
       }
     }
-    if ($sumW -le 0) { return [Windows.Media.Color]::FromRgb(196, 214, 232) }
-    $r = [int][Math]::Round($sumR / $sumW)
-    $g = [int][Math]::Round($sumG / $sumW)
-    $b = [int][Math]::Round($sumB / $sumW)
+
+    if ($buckets.Count -eq 0) { return [Windows.Media.Color]::FromRgb(196, 214, 232) }
+    $best = $buckets.GetEnumerator() | Sort-Object { $_.Value.W } -Descending | Select-Object -First 1
+    $bv = $best.Value
+    if ($bv.W -le 0) { return [Windows.Media.Color]::FromRgb(196, 214, 232) }
+    $r = [int][Math]::Round($bv.R / $bv.W)
+    $g = [int][Math]::Round($bv.G / $bv.W)
+    $b = [int][Math]::Round($bv.B / $bv.W)
 
     # приглушаем слишком светлые и серые цвета
     $maxC = [Math]::Max($r, [Math]::Max($g, $b))
