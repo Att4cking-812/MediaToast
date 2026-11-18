@@ -163,6 +163,50 @@ function Get-CurrentTrack {
   if ($script:emptyTicks -ge 4) { $script:emptyTicks = 0; [void](Refresh-SessionManager) }
   return $null
 }
+# ---------------------------------------------------------------- статистика
+$script:listenPath = Join-Path $PSScriptRoot 'listening.tsv'
+$script:listenKey = ''
+$script:listenArtist = ''
+$script:listenTitle = ''
+$script:listenAccum = 0.0
+$script:listenLast = [DateTime]::UtcNow
+
+function Write-ListenChunk([double]$seconds) {
+  if ($seconds -lt 1 -or -not $script:listenArtist -and -not $script:listenTitle) { return }
+  try {
+    $stamp = (Get-Date -Format 'yyyy-MM-ddTHH:mm:ss')
+    $line = $stamp + "`t" + [int][Math]::Round($seconds) + "`t" + $script:listenArtist + "`t" + $script:listenTitle
+    Add-Content -LiteralPath $script:listenPath -Value $line -Encoding UTF8
+  } catch { }
+}
+
+function Track-Listening($track, [bool]$playing) {
+  $now = [DateTime]::UtcNow
+  $delta = ($now - $script:listenLast).TotalSeconds
+  $script:listenLast = $now
+  if ($delta -lt 0 -or $delta -gt 10) { $delta = 0 }
+
+  if (-not $playing -or -not $track -or -not $track.Title) {
+    if ($script:listenAccum -ge 1) { Write-ListenChunk $script:listenAccum; $script:listenAccum = 0 }
+    return
+  }
+
+  $key = $track.Title + '|' + $track.Artist
+  if ($key -ne $script:listenKey) {
+    if ($script:listenAccum -ge 1) { Write-ListenChunk $script:listenAccum }
+    $script:listenKey = $key
+    $script:listenArtist = [string]$track.Artist
+    $script:listenTitle = [string]$track.Title
+    $script:listenAccum = 0
+  }
+
+  $script:listenAccum += $delta
+  if ($script:listenAccum -ge 30) {
+    Write-ListenChunk 30
+    $script:listenAccum = $script:listenAccum - 30
+  }
+}
+
 # ---------------------------------------------------------------- окно
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
@@ -787,6 +831,7 @@ $mediaTimer.Add_Tick({
         }
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
+        Track-Listening $track $isPlaying
         if ($script:glowShown -and $track.Art -and $script:glowKey -ne $track.Key) {
           $script:glowKey = $track.Key
           $glowColor = Get-ArtColor $track.Art
@@ -794,6 +839,7 @@ $mediaTimer.Add_Tick({
         }
       } else {
         $script:lastStatus = ''
+        Track-Listening $null $false
       }
 
       if (-not $script:volumeMode -and $window.Visibility -eq 'Visible') { Update-Progress }
