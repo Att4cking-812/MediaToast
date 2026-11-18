@@ -183,7 +183,8 @@ $html = @"
     </div>
   </div>
 
-  <footer>Обновлено: $(Get-Date -Format 'dd.MM.yyyy HH:mm') · записей: $($rows.Count) · файл: listening.tsv</footer>
+  <footer>Обновлено: $(Get-Date -Format 'dd.MM.yyyy HH:mm') · записей: $($rows.Count) · файл: listening.tsv<br>
+  Это снимок на момент открытия. Чтобы обновить — нажми «Статистика» в панели трея ещё раз.</footer>
 </div>
 </body>
 </html>
