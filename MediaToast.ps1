@@ -48,8 +48,15 @@ try { Set-Content -LiteralPath $pidPath -Value $PID -Encoding ASCII } catch { }
 
 # ---------------------------------------------------------------- громкость
 $csPath = Join-Path $PSScriptRoot 'AudioEndpoint.cs'
-try { Add-Type -TypeDefinition ([IO.File]::ReadAllText($csPath, [Text.Encoding]::UTF8)) -Language CSharp -ErrorAction Stop }
-catch { Write-Log ('audio compile fail: ' + $_.Exception.Message) }
+$meterPath = Join-Path $PSScriptRoot 'AppMeter.cs'
+try {
+  $sources = @($csPath)
+  if (Test-Path -LiteralPath $meterPath) { $sources += $meterPath }
+  Add-Type -Path $sources -ErrorAction Stop
+} catch {
+  Write-Log ('audio compile fail: ' + $_.Exception.Message)
+  try { Add-Type -TypeDefinition ([IO.File]::ReadAllText($csPath, [Text.Encoding]::UTF8)) -Language CSharp } catch { }
+}
 
 # ---------------------------------------------------------------- WinRT медиа
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -244,7 +251,7 @@ $xaml = @'
 
       <Border x:Name="CardBackdrop" Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Opacity="0"
               Background="Transparent" IsHitTestVisible="False"/>
-      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#CE14111C" IsHitTestVisible="False"/>
+      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#B414111C" IsHitTestVisible="False"/>
       <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" IsHitTestVisible="False">
         <Border.Background>
           <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
@@ -254,7 +261,7 @@ $xaml = @'
         </Border.Background>
       </Border>
 
-      <Grid Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
+      <Grid x:Name="CoverWrap" Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
         <Ellipse x:Name="RingTrack" Width="84" Height="84" Stroke="#22FFFFFF" StrokeThickness="2" Visibility="Collapsed"/>
         <Path x:Name="Ring" Stroke="#6FD8FF" StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
               Width="84" Height="84" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
@@ -265,7 +272,11 @@ $xaml = @'
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <Border x:Name="CoverArt" CornerRadius="12" Background="Transparent" Opacity="0" RenderTransformOrigin="0.5,0.5">
               <Border.RenderTransform>
-                <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
+                <TransformGroup>
+                  <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
+                  <RotateTransform x:Name="ArtRotate" Angle="0" CenterX="0.5" CenterY="0.5"/>
+                  <TranslateTransform x:Name="ArtSlide" X="0"/>
+                </TransformGroup>
               </Border.RenderTransform>
             </Border>
             <Border CornerRadius="12" BorderBrush="#26FFFFFF" BorderThickness="1" IsHitTestVisible="False"/>
@@ -355,8 +366,67 @@ function Update-CardBackdrop($bitmap) {
     $brush = New-Object Windows.Media.ImageBrush($small)
     $brush.Stretch = [Windows.Media.Stretch]::UniformToFill
     $cardBackdrop.Background = $brush
-    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.34, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
+    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.50, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
     $cardBackdrop.BeginAnimation([Windows.UIElement]::OpacityProperty, $fade)
+  } catch { }
+}
+
+function Update-CardTheme($color) {
+  if (-not $color) { return }
+  try {
+    # фон карточки: тёмная база с подмешанным цветом обложки
+    $alpha = 255
+    if ($script:settings -and [string]$script:settings.cardTheme -eq 'glass') { $alpha = 200 }
+    $mixR = [int](22 * 0.68 + $color.R * 0.32)
+    $mixG = [int](18 * 0.68 + $color.G * 0.32)
+    $mixB = [int](28 * 0.68 + $color.B * 0.32)
+    $deep = [Windows.Media.Color]::FromArgb($alpha, 15, 12, 21)
+
+    $bg = New-Object Windows.Media.LinearGradientBrush
+    $bg.StartPoint = New-Object Windows.Point(0, 0)
+    $bg.EndPoint = New-Object Windows.Point(1, 1)
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb($alpha, $mixR, $mixG, $mixB), 0.0)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop($deep, 0.55)))
+    $bg.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb($alpha, [int]($mixR * 0.7), [int]($mixG * 0.7), [int]($mixB * 0.7)), 1.0)))
+    $spin = New-Object Windows.Media.RotateTransform
+    $spin.CenterX = 0.5
+    $spin.CenterY = 0.5
+    $bg.RelativeTransform = $spin
+    $card.Background = $bg
+
+    $spinAnim = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(26)))
+    $spinAnim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $spin.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $spinAnim)
+
+    # светящееся кольцо
+    $ringGlow = New-Object Windows.Media.Effects.DropShadowEffect
+    $ringGlow.BlurRadius = 12
+    $ringGlow.ShadowDepth = 0
+    $ringGlow.Opacity = 0.75
+    $ringGlow.Color = $color
+    $ring.Effect = $ringGlow
+    $ring.StrokeThickness = 2.8
+
+    # градиентный заголовок: белый -> подсвеченный цвет обложки
+    $titleBrush = New-Object Windows.Media.LinearGradientBrush
+    $titleBrush.StartPoint = New-Object Windows.Point(0, 0)
+    $titleBrush.EndPoint = New-Object Windows.Point(1, 0)
+    $titleBrush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromRgb(255, 255, 255), 0.0)))
+    $lite = [Windows.Media.Color]::FromRgb(
+      [int](255 * 0.55 + $color.R * 0.45),
+      [int](255 * 0.55 + $color.G * 0.45),
+      [int](255 * 0.55 + $color.B * 0.45))
+    $titleBrush.GradientStops.Add((New-Object Windows.Media.GradientStop($lite, 1.0)))
+    $titleText.Foreground = $titleBrush
+
+    # подсветка полосы прогресса
+    $fillGlow = New-Object Windows.Media.Effects.DropShadowEffect
+    $fillGlow.BlurRadius = 8
+    $fillGlow.ShadowDepth = 0
+    $fillGlow.Opacity = 0.65
+    $fillGlow.Color = $color
+    $progressFill.Effect = $fillGlow
+    $volumeFill.Effect = $fillGlow
   } catch { }
 }
 
@@ -375,6 +445,10 @@ $coverArt = $window.FindName('CoverArt')
 $coverGlyph = $window.FindName('CoverGlyph')
 $ring = $window.FindName('Ring')
 $ringTrack = $window.FindName('RingTrack')
+$coverWrap = $window.FindName('CoverWrap')
+$artRotate = $window.FindName('ArtRotate')
+$artSlide = $window.FindName('ArtSlide')
+$coverBorder = $window.FindName('CoverBorder')
 $titleText = $window.FindName('TitleText')
 $artistText = $window.FindName('ArtistText')
 $albumText = $window.FindName('AlbumText')
@@ -400,6 +474,69 @@ $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
 $script:glowStatic = $false
+$settingsPath = Join-Path $PSScriptRoot 'settings.json'
+
+function Get-DefaultSettings {
+  return @{
+    cardLeft        = 24
+    cardTop         = 24
+    cardWidth       = 384
+    breathSeconds   = 3.2
+    glowSensitivity = 0.12
+    glowPreset      = 'neon'
+    cardTheme       = 'neon'
+  }
+}
+
+function Load-Settings {
+  $s = Get-DefaultSettings
+  try {
+    if (Test-Path -LiteralPath $settingsPath) {
+      $raw = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8
+      $obj = $raw | ConvertFrom-Json
+      foreach ($k in @($s.Keys)) {
+        if ($null -ne $obj.$k) { $s[$k] = $obj.$k }
+      }
+    }
+  } catch { }
+  return $s
+}
+
+function Apply-Settings {
+  $s = Load-Settings
+  $script:settings = $s
+  try {
+    if ($card) {
+      $w = [double]$s.cardWidth
+      if ($w -ge 260 -and $w -le 720) { $card.Width = $w }
+    }
+    if ($coverWrap) {
+      if ([string]$s.cardTheme -eq 'minimal') { $coverWrap.Visibility = 'Collapsed' }
+      else { $coverWrap.Visibility = 'Visible' }
+    }
+  } catch { }
+
+  switch ([string]$s.glowPreset) {
+    'calm' { $script:presetPeriod = 4.6; $script:presetAmp = 0.15; $script:presetPulse = 0.13 }
+    'fire' { $script:presetPeriod = 2.2; $script:presetAmp = 0.24; $script:presetPulse = 0.40 }
+    default { $script:presetPeriod = 3.2; $script:presetAmp = 0.21; $script:presetPulse = 0.26 }
+  }
+  $base = [double]$s.breathSeconds
+  if ($base -gt 0.5 -and $base -lt 12) { $script:presetPeriod = $base * ($script:presetPeriod / 3.2) }
+  Write-Log ('settings: preset=' + $s.glowPreset + ' width=' + $s.cardWidth + ' period=' + [math]::Round($script:presetPeriod,2))
+}
+
+Apply-Settings
+$script:vinylFlag = Join-Path $PSScriptRoot 'vinyl.on'
+$script:vinylOn = $false
+$script:vinylSpinning = $false
+$script:vinylSpin = $null
+$script:glowAudio = $false
+$script:glowLevel = 0.0
+$script:energyAvg = 0.0
+$script:breathTimer = $null
+$script:breathT = 0.0
+$script:beatLog = [DateTime]::MinValue
 $script:tintKey = ''
 $script:accentColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 
@@ -452,9 +589,11 @@ function Set-ClickThrough($win) {
 function New-GlowFill([string]$side, $color, [string]$kind) {
   $brush = New-Object Windows.Media.LinearGradientBrush
   if ($kind -eq 'core') {
-    $stops = @(@(170, 0.0), @(90, 0.45), @(0, 1.0))
+    $stops = @(@(240, 0.0), @(120, 0.6), @(0, 1.0))
+  } elseif ($kind -eq 'bloom') {
+    $stops = @(@(34, 0.0), @(14, 0.40), @(0, 1.0))
   } else {
-    $stops = @(@(200, 0.0), @(110, 0.20), @(40, 0.55), @(0, 1.0))
+    $stops = @(@(150, 0.0), @(66, 0.35), @(16, 0.7), @(0, 1.0))
   }
   foreach ($s in $stops) {
     $col = [Windows.Media.Color]::FromArgb([int]$s[0], $color.R, $color.G, $color.B)
@@ -501,8 +640,8 @@ function New-GlowWindow([string]$side) {
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
 
-  $softT = 84
-  $coreT = 16
+  $softT = 96
+  $coreT = 26
   switch ($side) {
     'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
     'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
@@ -515,7 +654,7 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 84
+  $thick = 96
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
@@ -530,38 +669,77 @@ function New-GlowWindow([string]$side) {
   $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core }
   return $w
 }
-
 function Update-GlowColor($color) {
   if (-not $color) { return }
+  if ($script:settings -and $script:settings.glowPreset -eq 'fire') {
+    $color = [Windows.Media.Color]::FromRgb(
+      [int]($color.R * 0.7 + 255 * 0.3),
+      [int]($color.G * 0.7 + 110 * 0.3),
+      [int]($color.B * 0.7 + 40 * 0.3))
+  }
   $script:glowColor = $color
-  Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
+
+  $sec = [Windows.Media.Color]::FromRgb(
+    [int]($color.R * 0.72 + $color.B * 0.28),
+    [int]($color.G * 0.72 + $color.R * 0.28),
+    [int]($color.B * 0.72 + $color.G * 0.28))
+
   foreach ($p in $script:glowParts) {
     try {
-      $p.Soft.Fill = (New-GlowFill $p.Side $color 'soft')
       $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
+      $p.Soft.Fill = (New-GlowFill $p.Side $sec 'soft')
     } catch { }
   }
 }
-
 function Start-GlowBreathing {
-  $vol = [BrickyardAudio.Endpoint]::GetVolumePercent()
-  if ($vol -lt 0) { $vol = 50 }
-  $script:glowVol = $vol
-  $factor = 0.8 + 0.4 * ([double]$vol / 100.0)
-  $lo = 0.10 * $factor
-  $hi = 0.32 * $factor
-  $delays = @(0, 400, 200, 600)
-  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-    $w = $script:glowWindows[$i]
-    try {
-      $anim = New-Object Windows.Media.Animation.DoubleAnimation([double]$lo, [double]$hi, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
-      $anim.AutoReverse = $true
-      $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-      $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
-      $anim.EasingFunction = $easeOut
-      $w.BeginAnimation([Windows.Window]::OpacityProperty, $anim)
-    } catch { }
+  $script:breathT = 0.0
+  $script:glowLevel = 0.0
+  if (-not $script:breathTimer) {
+    $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
+    $script:breathTimer.Interval = [TimeSpan]::FromMilliseconds(40)
+    $script:breathTimer.Add_Tick({
+        try {
+          if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
+          $script:breathT += 0.04
+
+          # уровень музыки (только сессия плеера)
+          $peak = 0.0
+          try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
+          $sens = 0.12
+          if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
+          $target = [Math]::Pow([Math]::Min(1.0, $peak / $sens), 0.7)
+          if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
+          else { $script:glowLevel = ($script:glowLevel * 0.86) + ($target * 0.14) }
+
+          $period = if ($script:presetPeriod) { [double]$script:presetPeriod } else { 3.2 }
+          $amp = if ($script:presetAmp) { [double]$script:presetAmp } else { 0.21 }
+          $pulse = if ($script:presetPulse) { [double]$script:presetPulse } else { 0.26 }
+
+          # авто-режим: слушаем среднюю энергию и подбираем характер
+          $script:energyAvg = ($script:energyAvg * 0.995) + ($script:glowLevel * 0.005)
+          if ($script:settings -and $script:settings.glowPreset -eq 'auto') {
+            if ($script:energyAvg -gt 0.62) { $period = 2.2; $amp = 0.24; $pulse = 0.40 }
+            elseif ($script:energyAvg -lt 0.28) { $period = 4.4; $amp = 0.15; $pulse = 0.13 }
+            else { $period = 3.2; $amp = 0.21; $pulse = 0.26 }
+          }
+          $offsets = @(0.0, 0.34, 0.18, 0.52)
+          $paused = ($script:lastStatus -ne 'Playing')
+          for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+            if ($paused) { $op = 0.0 }
+            else {
+              # окно почти непрозрачное: яркостью управляют сами пятна
+              $phase = $script:breathT + $offsets[$i]
+              $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
+              $op = 0.10 + ($amp * $breath) + ($script:glowLevel * $pulse)
+            }
+            if ($op -lt 0.01) { $op = 0.0 }
+            if ($op -gt 0.95) { $op = 0.95 }
+            $script:glowWindows[$i].Opacity = $op
+          }
+        } catch { }
+      })
   }
+  $script:breathTimer.Start()
 }
 
 function Show-Glow {
@@ -570,7 +748,9 @@ function Show-Glow {
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
-  foreach ($w in $script:glowWindows) { $w.Visibility = 'Visible' }
+  foreach ($w in $script:glowWindows) {
+    try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Visibility = 'Visible' } catch { }
+  }
   Start-GlowBreathing
   $script:glowShown = $true
   Write-Log 'glow on'
@@ -585,6 +765,7 @@ function Hide-Glow {
     } catch { }
   }
   $script:glowShown = $false
+  if ($script:breathTimer) { $script:breathTimer.Stop() }
   Write-Log 'glow off'
 }
 
@@ -687,6 +868,8 @@ $script:lastStatus = ''
 $script:lastVolume = -1
 $script:lastMute = $false
 $script:lastShownKey = ''
+$script:lastShownKey = ''
+$script:lastShownTime = [DateTime]::MinValue
 $script:lastShownAt = [DateTime]::MinValue
 $script:lastBeat = [DateTime]::MinValue
 
@@ -983,13 +1166,24 @@ function Fade-Art($art) {
   try {
     Set-Art $art
     $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
-    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.45, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
+    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.35, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
     $fadeIn.EasingFunction = $easeOut
     $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
-    $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(1.06, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(220)))
-    $zoomIn.EasingFunction = $easeOut
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+
+    # новая обложка въезжает справа
+    if ($artSlide) {
+      $artSlide.BeginAnimation([Windows.Media.TranslateTransform]::XProperty, $null)
+      $slideIn = New-Object Windows.Media.Animation.DoubleAnimation(48.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(260)))
+      $slideIn.EasingFunction = $easeOut
+      $artSlide.BeginAnimation([Windows.Media.TranslateTransform]::XProperty, $slideIn)
+    }
+
+    if (-not $script:vinylOn) {
+      $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(1.06, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(220)))
+      $zoomIn.EasingFunction = $easeOut
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+    }
     $script:pendingArt = $null
     $artTimer.Stop()
   } catch { }
@@ -1005,6 +1199,8 @@ function Show-Toast([string]$mode) {
 
     if ($track -and $track.Title) {
       $titleText.Text = $track.Title
+      $script:lastShownKey = $track.Key
+      $script:lastShownTime = (Get-Date).ToUniversalTime()
       $artistText.Text = if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }
       if ($script:volumeMode) {
         $albumText.Text = 'Громкость'
@@ -1028,8 +1224,10 @@ function Show-Toast([string]$mode) {
 
     $window.UpdateLayout()
     $area = [System.Windows.SystemParameters]::WorkArea
-    $window.Left = $area.Left + 24
-    $window.Top = $area.Top + 24
+    $left = if ($script:settings) { [double]$script:settings.cardLeft } else { 24 }
+    $top = if ($script:settings) { [double]$script:settings.cardTop } else { 24 }
+    $window.Left = $area.Left + $left
+    $window.Top = $area.Top + $top
 
     $script:hiding = $false
     $hideTimer.Stop()
@@ -1071,13 +1269,26 @@ $mediaTimer.Add_Tick({
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
             $holdTimer.Start()
           }
-        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing') {
+        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and ($track.Key -ne $script:lastShownKey -or ((Get-Date).ToUniversalTime() - $script:lastShownTime).TotalMinutes -gt 10)) {
           Show-Toast 'track'
         } elseif (-not $isPlaying -and $track.Status -eq 'Paused' -and $script:lastStatus -eq 'Playing') {
           Show-Toast 'pause'
         }
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
+        if ($script:vinylOn) {
+          if ($isPlaying -and -not $script:vinylSpinning) {
+            if (-not $script:vinylSpin) {
+              $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
+              $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+            }
+            $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+            $script:vinylSpinning = $true
+          } elseif (-not $isPlaying -and $script:vinylSpinning) {
+            $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
+            $script:vinylSpinning = $false
+          }
+        }
         Track-Listening $track $isPlaying
         if ($track.Art -and $script:tintKey -ne $track.Key) {
           $script:tintKey = $track.Key
@@ -1086,6 +1297,7 @@ $mediaTimer.Add_Tick({
             $script:accentColor = $tint
             try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
             Update-CardBorder $tint
+            Update-CardTheme $tint
             Update-CardBackdrop $track.Art
           }
         }
@@ -1166,6 +1378,56 @@ $reconnectTimer.Add_Tick({
 $reconnectTimer.Start()
 
 # тумблер подсветки: файл glow.on рядом со скриптом
+function Apply-Vinyl([bool]$on) {
+  try {
+    if ($on -eq $script:vinylOn) { return }
+    $script:vinylOn = $on
+    if ($on) {
+      $coverBorder.CornerRadius = New-Object Windows.CornerRadius 38.0
+      $coverArt.CornerRadius = New-Object Windows.CornerRadius 38.0
+      if (-not $script:vinylSpin) {
+        $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
+        $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+      }
+      if ($script:lastStatus -eq 'Playing') {
+        $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+        $script:vinylSpinning = $true
+      }
+    } else {
+      $coverBorder.CornerRadius = New-Object Windows.CornerRadius 12.0
+      $coverArt.CornerRadius = New-Object Windows.CornerRadius 12.0
+      $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
+      $artRotate.Angle = 0
+      $script:vinylSpinning = $false
+    }
+    Write-Log ('vinyl ' + $on)
+  } catch { }
+}
+
+$vinylTimer = New-Object Windows.Threading.DispatcherTimer
+$vinylTimer.Interval = [TimeSpan]::FromSeconds(1)
+$vinylTimer.Add_Tick({
+    try { Apply-Vinyl (Test-Path -LiteralPath $script:vinylFlag) } catch { }
+  })
+$vinylTimer.Start()
+
+# подхватываем изменения settings.json на лету
+$script:settingsStamp = ''
+try { if (Test-Path -LiteralPath $settingsPath) { $script:settingsStamp = (Get-Item -LiteralPath $settingsPath).LastWriteTimeUtc.Ticks } } catch { }
+$settingsTimer = New-Object Windows.Threading.DispatcherTimer
+$settingsTimer.Interval = [TimeSpan]::FromSeconds(2)
+$settingsTimer.Add_Tick({
+    try {
+      $stamp = ''
+      if (Test-Path -LiteralPath $settingsPath) { $stamp = (Get-Item -LiteralPath $settingsPath).LastWriteTimeUtc.Ticks }
+      if ($stamp -and $stamp -ne $script:settingsStamp) {
+        $script:settingsStamp = $stamp
+        Apply-Settings
+      }
+    } catch { }
+  })
+$settingsTimer.Start()
+
 $glowTimer = New-Object Windows.Threading.DispatcherTimer
 $glowTimer.Interval = [TimeSpan]::FromSeconds(1)
 $glowTimer.Add_Tick({
@@ -1180,16 +1442,39 @@ $glowTimer.Add_Tick({
       } elseif (-not $on -and $script:glowShown) {
         Hide-Glow
       } elseif ($on -and $script:glowShown) {
-        $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
-        if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Start-GlowBreathing }
+        # яркость ведёт таймер уровня звука, здесь ничего не делаем
       }
     } catch { }
   })
 $glowTimer.Start()
 
+# пульс обложки и кольца от баса, пока карточка на экране
+$script:pulseLevel = 0.0
+$pulseTimer = New-Object Windows.Threading.DispatcherTimer
+$pulseTimer.Interval = [TimeSpan]::FromMilliseconds(50)
+$pulseTimer.Add_Tick({
+    try {
+      if ($window.Visibility -ne 'Visible' -or $script:lastStatus -ne 'Playing') { return }
+      if (-not $artScale -or -not $ring) { return }
+      $peak = 0.0
+      try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
+      $target = [Math]::Pow([Math]::Min(1.0, $peak / 0.12), 0.7)
+      if ($target -gt $script:pulseLevel) { $script:pulseLevel = $target }
+      else { $script:pulseLevel = ($script:pulseLevel * 0.82) + ($target * 0.18) }
+
+      $scale = 1.0 + ($script:pulseLevel * 0.035)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $null)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $null)
+      $artScale.ScaleX = $scale
+      $artScale.ScaleY = $scale
+
+      if ($ring.Effect) { $ring.Effect.Opacity = 0.45 + ($script:pulseLevel * 0.5) }
+    } catch { }
+  })
+$pulseTimer.Start()
+
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
-Write-Log ('names: textCol=' + ($null -ne $textCol) + ' ring=' + ($null -ne $ring) + ' backdrop=' + ($null -ne $cardBackdrop) + ' progressRow=' + ($null -ne $progressRow))
 if ($script:lastTrack) { $script:lastKey = $script:lastTrack.Key; $script:lastStatus = $script:lastTrack.Status }
 Set-Equalizer ($script:lastStatus -eq 'Playing')
 $script:lastVolume = [BrickyardAudio.Endpoint]::GetVolumePercent()
@@ -1248,6 +1533,15 @@ function Register-Hotkeys {
 }
 
 $app = New-Object Windows.Application
+$app.Add_DispatcherUnhandledException({
+    param($sender, $e)
+    try { Write-Log ('dispatcher error: ' + $e.Exception.Message) } catch { }
+    $e.Handled = $true
+  })
+[AppDomain]::CurrentDomain.add_UnhandledException({
+    param($sender, $e)
+    try { Write-Log ('unhandled: ' + $e.ExceptionObject.ToString()) } catch { }
+  })
 $app.Add_Startup({
     $window.Show()
     $window.Visibility = 'Hidden'
