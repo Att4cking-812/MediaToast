@@ -80,7 +80,11 @@ $xaml = @'
         WindowStyle="None" AllowsTransparency="True" Background="Transparent"
         ShowInTaskbar="False" ResizeMode="NoResize" SizeToContent="Height" Width="352"
         Topmost="True" Opacity="0">
-  <Border x:Name="Card" CornerRadius="18" Background="#F5151220" BorderBrush="#2EFFFFFF" BorderThickness="1" Padding="16">
+  <Border x:Name="Card" CornerRadius="18" Background="#F5151220" BorderBrush="#2EFFFFFF" BorderThickness="1" Padding="16"
+          RenderTransformOrigin="0.5,0.5">
+    <Border.RenderTransform>
+      <TranslateTransform x:Name="PanelShift" Y="0"/>
+    </Border.RenderTransform>
     <Border.Effect>
       <DropShadowEffect BlurRadius="26" ShadowDepth="0" Opacity="0.6" Color="#000000"/>
     </Border.Effect>
@@ -126,15 +130,18 @@ $xaml = @'
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
         <Border x:Name="PrevBtn" Grid.Column="0" Width="64" Height="34" CornerRadius="10" Background="#1E1A2A"
-                HorizontalAlignment="Center" Cursor="Hand">
+                HorizontalAlignment="Center" Cursor="Hand" RenderTransformOrigin="0.5,0.5">
+          <Border.RenderTransform><ScaleTransform x:Name="PrevScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
           <TextBlock Text="◀◀" FontSize="12" Foreground="#D9CFE6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <Border x:Name="PlayBtn" Grid.Column="1" Width="64" Height="34" CornerRadius="10" Background="#231E31"
-                HorizontalAlignment="Center" Cursor="Hand" Margin="8,0">
+                HorizontalAlignment="Center" Cursor="Hand" Margin="8,0" RenderTransformOrigin="0.5,0.5">
+          <Border.RenderTransform><ScaleTransform x:Name="PlayScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
           <TextBlock x:Name="PlayGlyph" Text="▶" FontSize="14" Foreground="#EAF7EF" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
         <Border x:Name="NextBtn" Grid.Column="2" Width="64" Height="34" CornerRadius="10" Background="#1E1A2A"
-                HorizontalAlignment="Center" Cursor="Hand">
+                HorizontalAlignment="Center" Cursor="Hand" RenderTransformOrigin="0.5,0.5">
+          <Border.RenderTransform><ScaleTransform x:Name="NextScale" ScaleX="1" ScaleY="1"/></Border.RenderTransform>
           <TextBlock Text="▶▶" FontSize="12" Foreground="#D9CFE6" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>
       </Grid>
@@ -264,6 +271,7 @@ $xaml = @'
 
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
 $winCard = $window.FindName('Card')
+$panelShift = $window.FindName('PanelShift')
 $coverArt = $window.FindName('CoverArt')
 $coverGlyph = $window.FindName('CoverGlyph')
 $titleText = $window.FindName('TitleText')
@@ -522,6 +530,48 @@ $pillStats.Add_MouseLeftButtonUp({
     Hide-Panel
   })
 
+# ---------------------------------------------------------------- ховеры
+function Add-HoverScale($element, $transform, [double]$scaleTo) {
+  $element.Add_MouseEnter({
+      try {
+        $a = New-Object Windows.Media.Animation.DoubleAnimation(1.0, $scaleTo, [Windows.Duration]([TimeSpan]::FromMilliseconds(110)))
+        $a.EasingFunction = (New-Object Windows.Media.Animation.CubicEase)
+        $a.EasingFunction.EasingMode = [Windows.Media.Animation.EasingMode]::EaseOut
+        $transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $a)
+        $transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $a)
+      } catch { }
+    })
+  $element.Add_MouseLeave({
+      try {
+        $a = New-Object Windows.Media.Animation.DoubleAnimation($scaleTo, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(150)))
+        $a.EasingFunction = (New-Object Windows.Media.Animation.CubicEase)
+        $a.EasingFunction.EasingMode = [Windows.Media.Animation.EasingMode]::EaseOut
+        $transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $a)
+        $transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $a)
+      } catch { }
+    })
+}
+
+function Add-HoverTint($element, [string]$from, [string]$to) {
+  $brushFrom = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($from))
+  $brushTo = New-Object Windows.Media.SolidColorBrush ([Windows.Media.ColorConverter]::ConvertFromString($to))
+  $brushFrom.Freeze()
+  $brushTo.Freeze()
+  $element.Add_MouseEnter({ try { $element.Background = $brushTo } catch { } })
+  $element.Add_MouseLeave({ try { $element.Background = $brushFrom } catch { } })
+}
+
+Add-HoverScale $prevBtn (($window.FindName('PrevScale'))) 1.06
+Add-HoverScale $playBtn (($window.FindName('PlayScale'))) 1.06
+Add-HoverScale $nextBtn (($window.FindName('NextScale'))) 1.06
+Add-HoverTint $prevBtn '#1E1A2A' '#2A2340'
+Add-HoverTint $nextBtn '#1E1A2A' '#2A2340'
+Add-HoverTint $playBtn '#231E31' '#31284A'
+Add-HoverTint $pillToast '#171322' '#221C33'
+Add-HoverTint $pillAuto '#171322' '#221C33'
+Add-HoverTint $pillGlow '#171322' '#221C33'
+Add-HoverTint $pillStats '#171322' '#221C33'
+
 # ---------------------------------------------------------------- показ/скрытие
 function Show-Panel {
   Update-Info
@@ -533,14 +583,29 @@ function Show-Panel {
   $window.Left = $area.Right - $window.ActualWidth - 14
   $window.Top = $area.Bottom - $window.ActualHeight - 14
   if ($window.Top -lt $area.Top) { $window.Top = $area.Top + 14 }
-  $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(160)))
+
+  $easeOut = New-Object Windows.Media.Animation.CubicEase
+  $easeOut.EasingMode = [Windows.Media.Animation.EasingMode]::EaseOut
+  $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
+  $fade.EasingFunction = $easeOut
   $window.BeginAnimation([Windows.Window]::OpacityProperty, $fade)
+
+  $slide = New-Object Windows.Media.Animation.DoubleAnimation(18.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(200)))
+  $slide.EasingFunction = $easeOut
+  $panelShift.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $slide)
 }
 
 function Hide-Panel {
-  $fade = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(140)))
+  $easeIn = New-Object Windows.Media.Animation.CubicEase
+  $easeIn.EasingMode = [Windows.Media.Animation.EasingMode]::EaseIn
+  $fade = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(130)))
+  $fade.EasingFunction = $easeIn
   $fade.Add_Completed({ try { $window.Visibility = 'Hidden' } catch { } })
   $window.BeginAnimation([Windows.Window]::OpacityProperty, $fade)
+
+  $slide = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 12.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(130)))
+  $slide.EasingFunction = $easeIn
+  $panelShift.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $slide)
 }
 
 $window.Add_Deactivated({ Hide-Panel })
