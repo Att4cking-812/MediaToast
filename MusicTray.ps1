@@ -295,6 +295,21 @@ $xaml = @'
           <Border x:Name="VinylDot" Grid.Column="1" Width="8" Height="8" CornerRadius="4" Background="#3A3148" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
+
+      <Border x:Name="PillPreset" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Режим подсветки" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock x:Name="PresetState" Text="неон" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="⟳" FontSize="14" Foreground="#F0C060" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -331,6 +346,8 @@ $pillWeb = $window.FindName('PillWeb')
 $pillVinyl = $window.FindName('PillVinyl')
 $vinylState = $window.FindName('VinylState')
 $vinylDot = $window.FindName('VinylDot')
+$pillPreset = $window.FindName('PillPreset')
+$presetState = $window.FindName('PresetState')
 $headerHit = $window.FindName('HeaderHit')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
@@ -339,11 +356,33 @@ $script:toastVbs = Join-Path $root 'MediaToast.vbs'
 $script:trayVbs = Join-Path $root 'MusicTray.vbs'
 $script:glowFlag = Join-Path $root 'glow.on'
 $script:vinylFlag = Join-Path $root 'vinyl.on'
+$script:settingsPath = Join-Path $root 'settings.json'
 
 function Get-ToastAlive {
   $p = Get-Content -LiteralPath $toastPidPath -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($p -match '^\d+$') { return [bool](Get-Process -Id ([int]$p) -ErrorAction SilentlyContinue) }
   return $false
+}
+
+function Get-Settings {
+  $keys = @('cardLeft', 'cardTop', 'cardWidth', 'breathSeconds', 'glowSensitivity', 'glowPreset')
+  $defaults = @{ cardLeft = 24; cardTop = 24; cardWidth = 384; breathSeconds = 3.2; glowSensitivity = 0.12; glowPreset = 'neon' }
+  $s = @{}
+  foreach ($k in $keys) { $s[$k] = $defaults[$k] }
+  try {
+    if (Test-Path -LiteralPath $script:settingsPath) {
+      $o = Get-Content -LiteralPath $script:settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+      foreach ($k in $keys) { if ($null -ne $o.$k) { $s[$k] = $o.$k } }
+    }
+  } catch { }
+  return $s
+}
+
+function Save-Settings($s) {
+  try {
+    $json = $s | ConvertTo-Json -Depth 4
+    [IO.File]::WriteAllText($script:settingsPath, $json, (New-Object Text.UTF8Encoding($false)))
+  } catch { }
 }
 
 function Update-Pills {
@@ -390,6 +429,12 @@ function Update-Pills {
     $vinylState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(135,122,154))
     $vinylDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(58,49,72))
   }
+
+  $cfg = Get-Settings
+  $names = @{ calm = 'спокойный'; neon = 'неон'; fire = 'огонь' }
+  $pname = $names[[string]$cfg.glowPreset]
+  if (-not $pname) { $pname = 'неон' }
+  $presetState.Text = $pname
 }
 
 function Start-Toast {
@@ -600,6 +645,16 @@ $pillVinyl.Add_MouseLeftButtonUp({
       Set-Content -LiteralPath $script:vinylFlag -Value '1' -Encoding ASCII
     }
     Start-Sleep -Milliseconds 300
+    Update-Pills
+  })
+
+$pillPreset.Add_MouseLeftButtonUp({
+    $order = @('calm', 'neon', 'fire')
+    $cfg = Get-Settings
+    $i = [array]::IndexOf($order, [string]$cfg.glowPreset)
+    if ($i -lt 0) { $i = 1 }
+    $cfg.glowPreset = $order[($i + 1) % 3]
+    Save-Settings $cfg
     Update-Pills
   })
 
