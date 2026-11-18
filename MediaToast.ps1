@@ -400,6 +400,9 @@ $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
 $script:glowStatic = $false
+$script:glowAudio = $false
+$script:glowLevel = 0.0
+$script:beatLog = [DateTime]::MinValue
 $script:tintKey = ''
 $script:accentColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 
@@ -566,8 +569,11 @@ function Show-Glow {
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
-  foreach ($w in $script:glowWindows) { $w.Visibility = 'Visible' }
-  Start-GlowBreathing
+  $script:glowAudio = $false
+  $script:glowLevel = 0.05
+  foreach ($w in $script:glowWindows) {
+    try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Opacity = 0.10; $w.Visibility = 'Visible' } catch { }
+  }
   $script:glowShown = $true
   Write-Log 'glow on'
 }
@@ -581,6 +587,8 @@ function Hide-Glow {
     } catch { }
   }
   $script:glowShown = $false
+  $script:glowAudio = $false
+  $script:glowLevel = 0.0
   Write-Log 'glow off'
 }
 
@@ -1176,12 +1184,36 @@ $glowTimer.Add_Tick({
       } elseif (-not $on -and $script:glowShown) {
         Hide-Glow
       } elseif ($on -and $script:glowShown) {
-        $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
-        if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Write-Log ('glow volume ' + $v); Start-GlowBreathing }
+        # яркость ведёт таймер уровня звука, здесь ничего не делаем
       }
     } catch { }
   })
 $glowTimer.Start()
+
+# яркость подсветки по уровню звука с устройства
+$beatTimer = New-Object Windows.Threading.DispatcherTimer
+$beatTimer.Interval = [TimeSpan]::FromMilliseconds(50)
+$beatTimer.Add_Tick({
+    try {
+      if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
+      $peak = 0.0
+      try { $peak = [double][BrickyardAudio.Endpoint]::GetPeak() } catch { }
+      $db = 20.0 * [Math]::Log10([Math]::Max($peak, 0.00001))
+      $norm = [Math]::Max(0.0, [Math]::Min(1.0, ($db + 50.0) / 44.0))
+      $target = [Math]::Pow($norm, 0.75)
+      # быстрая атака, медленное затухание — так слышны удары и бас
+      if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
+      else { $script:glowLevel = ($script:glowLevel * 0.90) + ($target * 0.10) }
+      if ($script:glowLevel -lt 0.015) { $script:glowLevel = 0.015 }
+      $val = 0.06 + ($script:glowLevel * 0.42)
+      $factors = @(1.0, 0.92, 1.05, 0.88)
+      for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+        $op = [Math]::Min(1.0, [Math]::Max(0.03, $val * $factors[$i]))
+        $script:glowWindows[$i].Opacity = $op
+      }
+    } catch { }
+  })
+$beatTimer.Start()
 
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
