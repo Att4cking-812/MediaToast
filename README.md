@@ -65,7 +65,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\MediaToast.ps1 -Demo -Demo
   "cardWidth": 384,
   "breathSeconds": 3.2,
   "glowSensitivity": 0.12,
-  "glowPreset": "neon"
+  "glowPreset": "neon",
+  "cardTheme": "neon"
 }
 ```
 
@@ -74,6 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\MediaToast.ps1 -Demo -Demo
 - `breathSeconds` — скорость дыхания подсветки.
 - `glowSensitivity` — чем меньше, тем сильнее реагирует на тихую музыку.
 - `glowPreset` — `calm`, `neon` или `fire`. Переключается и кнопкой «Режим подсветки» в панели.
+- `cardTheme` — `neon` (полная карточка), `minimal` (без обложки, компактно) или `glass` (полупрозрачная). Переключается кнопкой «Тема карточки».
 
 ## Как это работает
 
