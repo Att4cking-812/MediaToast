@@ -634,31 +634,9 @@ function New-GlowWindow([string]$side) {
   $w.ResizeMode = 'NoResize'
   $w.Opacity = 0
 
-  $grid = New-Object Windows.Controls.Grid
-  $bloom = New-Object Windows.Shapes.Rectangle
-  $bloom.Fill = (New-GlowFill $side $script:glowColor 'bloom')
-  $soft = New-Object Windows.Shapes.Rectangle
-  $soft.Fill = (New-GlowFill $side $script:glowColor 'soft')
-  $core = New-Object Windows.Shapes.Rectangle
-  $core.Fill = (New-GlowFill $side $script:glowColor 'core')
-
-  $bloomT = 150
-  $softT = 52
-  $coreT = 4
-  switch ($side) {
-    'top'    { $bloom.VerticalAlignment = 'Top'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
-    'bottom' { $bloom.VerticalAlignment = 'Bottom'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
-    'left'   { $bloom.HorizontalAlignment = 'Left'; $bloom.Width = $bloomT; $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT }
-    'right'  { $bloom.HorizontalAlignment = 'Right'; $bloom.Width = $bloomT; $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT }
-  }
-  [void]$grid.Children.Add($bloom)
-  [void]$grid.Children.Add($soft)
-  [void]$grid.Children.Add($core)
-  $w.Content = $grid
-
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 150
+  $thick = 280
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
@@ -667,13 +645,70 @@ function New-GlowWindow([string]$side) {
     'right'  { $w.Left = $sw - $thick; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
   }
 
+  $canvas = New-Object Windows.Controls.Canvas
+  $canvas.ClipToBounds = $true
+  $w.Content = $canvas
+
+  $horizontal = ($side -eq 'top' -or $side -eq 'bottom')
+  $span = if ($horizontal) { $sw } else { $sh }
+  $blobs = @()
+
+  # пятна света, как от ленты за монитором
+  for ($i = 0; $i -lt 5; $i++) {
+    $el = New-Object Windows.Shapes.Ellipse
+    $size = 300 + (Get-Random -Minimum 0 -Maximum 280)
+    $el.Width = $size
+    $el.Height = $size
+
+    $brush = New-Object Windows.Media.RadialGradientBrush
+    $c = $script:glowColor
+    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(255, $c.R, $c.G, $c.B), 0.0)))
+    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(140, $c.R, $c.G, $c.B), 0.45)))
+    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B), 1.0)))
+    $el.Fill = $brush
+    $el.Opacity = 0.3
+
+    $base = [double]($span * ($i + 0.5) / 5.0) - ($size / 2.0) + (Get-Random -Minimum -70 -Maximum 70)
+    if ($side -eq 'top') {
+      [Windows.Controls.Canvas]::SetLeft($el, $base)
+      [Windows.Controls.Canvas]::SetTop($el, -($size / 2.0))
+    } elseif ($side -eq 'bottom') {
+      [Windows.Controls.Canvas]::SetLeft($el, $base)
+      [Windows.Controls.Canvas]::SetTop($el, $thick - ($size / 2.0))
+    } elseif ($side -eq 'left') {
+      [Windows.Controls.Canvas]::SetLeft($el, -($size / 2.0))
+      [Windows.Controls.Canvas]::SetTop($el, $base)
+    } else {
+      [Windows.Controls.Canvas]::SetLeft($el, $thick - ($size / 2.0))
+      [Windows.Controls.Canvas]::SetTop($el, $base)
+    }
+
+    $tf = New-Object Windows.Media.TranslateTransform
+    $el.RenderTransform = $tf
+
+    $drift = New-Object Windows.Media.Animation.DoubleAnimation(0.0, [double](Get-Random -Minimum 60 -Maximum 170), [Windows.Duration]([TimeSpan]::FromSeconds((Get-Random -Minimum 9 -Maximum 19))))
+    $drift.AutoReverse = $true
+    $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $drift.EasingFunction = $easeOut
+    if ($horizontal) { $tf.BeginAnimation([Windows.Media.TranslateTransform]::XProperty, $drift) }
+    else { $tf.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $drift) }
+
+    $pulse = New-Object Windows.Media.Animation.DoubleAnimation(0.16, 0.42, [Windows.Duration]([TimeSpan]::FromSeconds((Get-Random -Minimum 4 -Maximum 9))))
+    $pulse.AutoReverse = $true
+    $pulse.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $pulse.BeginTime = [TimeSpan]::FromMilliseconds((Get-Random -Minimum 0 -Maximum 1200))
+    $el.BeginAnimation([Windows.UIElement]::OpacityProperty, $pulse)
+
+    [void]$canvas.Children.Add($el)
+    $blobs += $el
+  }
+
   $w.Show()
   Set-ClickThrough $w
   $w.Visibility = 'Hidden'
-  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core; Bloom = $bloom }
+  $script:glowParts += [pscustomobject]@{ Side = $side; Blobs = $blobs }
   return $w
 }
-
 function Update-GlowColor($color) {
   if (-not $color) { return }
   if ($script:settings -and $script:settings.glowPreset -eq 'fire') {
@@ -684,21 +719,25 @@ function Update-GlowColor($color) {
   }
   $script:glowColor = $color
 
-  # второй тон для глубины: сдвигаем каналы на четверть
+  # второй тон для пятен
   $sec = [Windows.Media.Color]::FromRgb(
-    [int]($color.R * 0.72 + $color.B * 0.28),
-    [int]($color.G * 0.72 + $color.R * 0.28),
-    [int]($color.B * 0.72 + $color.G * 0.28))
-  Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
+    [int]($color.R * 0.7 + $color.B * 0.3),
+    [int]($color.G * 0.7 + $color.R * 0.3),
+    [int]($color.B * 0.7 + $color.G * 0.3))
+
   foreach ($p in $script:glowParts) {
     try {
-      $p.Bloom.Fill = (New-GlowFill $p.Side $sec 'bloom')
-      $p.Soft.Fill = (New-GlowFill $p.Side $color 'soft')
-      $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
+      for ($i = 0; $i -lt $p.Blobs.Count; $i++) {
+        $c = if (($i % 2) -eq 0) { $color } else { $sec }
+        $b = $p.Blobs[$i]
+        $g = $b.Fill
+        $g.GradientStops[0].Color = [Windows.Media.Color]::FromArgb(255, $c.R, $c.G, $c.B)
+        $g.GradientStops[1].Color = [Windows.Media.Color]::FromArgb(140, $c.R, $c.G, $c.B)
+        $g.GradientStops[2].Color = [Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B)
+      }
     } catch { }
   }
 }
-
 function Start-GlowBreathing {
   $script:breathT = 0.0
   $script:glowLevel = 0.0
@@ -733,14 +772,14 @@ function Start-GlowBreathing {
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-            if ($paused) { $op = 0.015 }
+            if ($paused) { $op = 0.0 }
             else {
+              # окно почти непрозрачное: яркостью управляют сами пятна
               $phase = $script:breathT + $offsets[$i]
               $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
-              $op = 0.09 + ($amp * $breath) + ($script:glowLevel * $pulse)
+              $op = 0.55 + (0.35 * $breath) + ($script:glowLevel * 0.25)
             }
-            if ($op -lt 0.01) { $op = 0.015 }
-            if ($op -gt 0.62) { $op = 0.62 }
+            if ($op -gt 1.0) { $op = 1.0 }
             $script:glowWindows[$i].Opacity = $op
           }
         } catch { }
