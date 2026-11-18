@@ -469,7 +469,10 @@ function New-GlowFill([string]$side, $color, [string]$kind) {
   if ($kind -eq 'soft') {
     try {
       $mid = $brush.GradientStops[1]
-      $shift = [Windows.Media.Color]::FromArgb(90, $color.B, $color.R, $color.G)
+      $shift = [Windows.Media.Color]::FromArgb(90,
+        [int](($color.R * 0.82) + ($color.B * 0.18)),
+        [int](($color.G * 0.82) + ($color.R * 0.18)),
+        [int](($color.B * 0.82) + ($color.G * 0.18)))
       $drift = New-Object Windows.Media.Animation.ColorAnimation($mid.Color, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(10)))
       $drift.AutoReverse = $true
       $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
@@ -593,8 +596,7 @@ function Get-ArtColor($bmp) {
     $stride = $w * 4
     $pixels = New-Object byte[] ($stride * $h)
     $bmp.CopyPixels($pixels, $stride, 0)
-    $bestScore = -1.0
-    $best = @(111, 216, 255)
+    $sumR = 0.0; $sumG = 0.0; $sumB = 0.0; $sumW = 0.0
     $stepX = [Math]::Max(1, [int]($w / 14))
     $stepY = [Math]::Max(1, [int]($h / 14))
     for ($y = 0; $y -lt $h; $y += $stepY) {
@@ -606,13 +608,20 @@ function Get-ArtColor($bmp) {
         $max = [Math]::Max($r, [Math]::Max($g, $b))
         $min = [Math]::Min($r, [Math]::Min($g, $b))
         $sat = if ($max -le 0) { 0 } else { ($max - $min) / $max }
-        $score = $sat * 0.85 + ($max / 255.0) * 0.15
-        if ($score -gt $bestScore) { $bestScore = $score; $best = @([int]$r, [int]$g, [int]$b) }
+        # взвешенное среднее: цветные пиксели весят больше, но тон сохраняется
+        $weight = 0.12 + ($sat * $sat) * ($max / 255.0)
+        $sumR += $r * $weight
+        $sumG += $g * $weight
+        $sumB += $b * $weight
+        $sumW += $weight
       }
     }
+    if ($sumW -le 0) { return [Windows.Media.Color]::FromRgb(196, 214, 232) }
+    $r = [int][Math]::Round($sumR / $sumW)
+    $g = [int][Math]::Round($sumG / $sumW)
+    $b = [int][Math]::Round($sumB / $sumW)
 
     # приглушаем слишком светлые и серые цвета
-    $r = $best[0]; $g = $best[1]; $b = $best[2]
     $maxC = [Math]::Max($r, [Math]::Max($g, $b))
     $minC = [Math]::Min($r, [Math]::Min($g, $b))
     $sat = if ($maxC -le 0) { 0 } else { ($maxC - $minC) / [double]$maxC }
