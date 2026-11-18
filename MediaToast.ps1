@@ -283,6 +283,172 @@ $albumT = $window.FindName('AlbumT')
 $eq = $window.FindName('Eq')
 $eqBars = @($window.FindName('Eq1'), $window.FindName('Eq2'), $window.FindName('Eq3'))
 
+# ---------------------------------------------------------------- подсветка краёв
+$script:glowFlag = Join-Path $PSScriptRoot 'glow.on'
+$script:glowWindows = @()
+$script:glowShown = $false
+$script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
+$script:glowKey = ''
+
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public static class WinEx {
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+  [DllImport("user32.dll", SetLastError=true)]
+  public static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+}
+"@
+
+function Set-ClickThrough($win) {
+  try {
+    $helper = New-Object Windows.Interop.WindowInteropHelper($win)
+    $h = $helper.Handle
+    if ($h -eq [IntPtr]::Zero) { return }
+    $ex = [WinEx]::GetWindowLong($h, -20)
+    $ex = $ex -bor 0x20 -bor 0x80 -bor 0x08000000
+    [void][WinEx]::SetWindowLong($h, -20, $ex)
+  } catch { }
+}
+
+function New-GlowBrush([string]$side, $color) {
+  $brush = New-Object Windows.Media.LinearGradientBrush
+  $c1 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
+  $c2 = [Windows.Media.Color]::FromArgb(110, $color.R, $color.G, $color.B)
+  $c3 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.0)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.45)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c3, 1.0)))
+  switch ($side) {
+    'top'    { $brush.StartPoint = New-Object Windows.Point(0.5, 0.0); $brush.EndPoint = New-Object Windows.Point(0.5, 1.0) }
+    'bottom' { $brush.StartPoint = New-Object Windows.Point(0.5, 1.0); $brush.EndPoint = New-Object Windows.Point(0.5, 0.0) }
+    'left'   { $brush.StartPoint = New-Object Windows.Point(0.0, 0.5); $brush.EndPoint = New-Object Windows.Point(1.0, 0.5) }
+    'right'  { $brush.StartPoint = New-Object Windows.Point(1.0, 0.5); $brush.EndPoint = New-Object Windows.Point(0.0, 0.5) }
+  }
+  return $brush
+}
+
+function New-GlowWindow([string]$side) {
+  $w = New-Object Windows.Window
+  $w.WindowStyle = 'None'
+  $w.AllowsTransparency = $true
+  $w.Background = [Windows.Media.Brushes]::Transparent
+  $w.ShowInTaskbar = $false
+  $w.Topmost = $true
+  $w.ShowActivated = $false
+  $w.Focusable = $false
+  $w.IsHitTestVisible = $false
+  $w.ResizeMode = 'NoResize'
+  $w.Opacity = 0
+
+  $rect = New-Object Windows.Shapes.Rectangle
+  $rect.Fill = (New-GlowBrush $side $script:glowColor)
+  $w.Content = $rect
+
+  $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
+  $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
+  $thick = 92
+
+  switch ($side) {
+    'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
+    'bottom' { $w.Left = 0; $w.Top = $sh - $thick; $w.Width = $sw; $w.Height = $thick }
+    'left'   { $w.Left = 0; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
+    'right'  { $w.Left = $sw - $thick; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
+  }
+
+  $w.Show()
+  Set-ClickThrough $w
+  $w.Visibility = 'Hidden'
+  return $w
+}
+
+function Update-GlowColor($color) {
+  if (-not $color) { return }
+  $script:glowColor = $color
+  Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
+  $sides = @('top', 'bottom', 'left', 'right')
+  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+    try {
+      $rect = $script:glowWindows[$i].Content
+      $rect.Fill = (New-GlowBrush $sides[$i] $color)
+    } catch { }
+  }
+}
+
+function Show-Glow {
+  if ($script:glowShown) { return }
+  $sides = @('top', 'bottom', 'left', 'right')
+  if ($script:glowWindows.Count -eq 0) {
+    foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
+  }
+  $delays = @(0, 400, 200, 600)
+  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+    $w = $script:glowWindows[$i]
+    $w.Visibility = 'Visible'
+    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.10, 0.30, [Windows.Duration]([TimeSpan]::FromMilliseconds(2600)))
+    $anim.AutoReverse = $true
+    $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
+    $anim.EasingFunction = $easeOut
+    $w.BeginAnimation([Windows.Window]::OpacityProperty, $anim)
+  }
+  $script:glowShown = $true
+  Write-Log 'glow on'
+}
+
+function Hide-Glow {
+  if (-not $script:glowShown) { return }
+  foreach ($w in $script:glowWindows) {
+    try {
+      $w.BeginAnimation([Windows.Window]::OpacityProperty, $null)
+      $w.Visibility = 'Hidden'
+    } catch { }
+  }
+  $script:glowShown = $false
+  Write-Log 'glow off'
+}
+
+function Get-ArtColor($bmp) {
+  try {
+    $w = [int]$bmp.PixelWidth
+    $h = [int]$bmp.PixelHeight
+    if ($w -le 0 -or $h -le 0) { return $null }
+    $stride = $w * 4
+    $pixels = New-Object byte[] ($stride * $h)
+    $bmp.CopyPixels($pixels, $stride, 0)
+    $bestScore = -1.0
+    $best = @(111, 216, 255)
+    $stepX = [Math]::Max(1, [int]($w / 14))
+    $stepY = [Math]::Max(1, [int]($h / 14))
+    for ($y = 0; $y -lt $h; $y += $stepY) {
+      for ($x = 0; $x -lt $w; $x += $stepX) {
+        $i = $y * $stride + $x * 4
+        $b = [double]$pixels[$i]
+        $g = [double]$pixels[$i + 1]
+        $r = [double]$pixels[$i + 2]
+        $max = [Math]::Max($r, [Math]::Max($g, $b))
+        $min = [Math]::Min($r, [Math]::Min($g, $b))
+        $sat = if ($max -le 0) { 0 } else { ($max - $min) / $max }
+        $score = $sat * 0.85 + ($max / 255.0) * 0.15
+        if ($score -gt $bestScore) { $bestScore = $score; $best = @([int]$r, [int]$g, [int]$b) }
+      }
+    }
+
+    # приглушаем слишком светлые и серые цвета
+    $r = $best[0]; $g = $best[1]; $b = $best[2]
+    $maxC = [Math]::Max($r, [Math]::Max($g, $b))
+    $minC = [Math]::Min($r, [Math]::Min($g, $b))
+    $sat = if ($maxC -le 0) { 0 } else { ($maxC - $minC) / [double]$maxC }
+    if ($sat -lt 0.22) { return [Windows.Media.Color]::FromRgb(111, 216, 255) }
+    if ($maxC -gt 185) {
+      $k = 185.0 / $maxC
+      $r = [int]($r * $k); $g = [int]($g * $k); $b = [int]($b * $k)
+    }
+    return [Windows.Media.Color]::FromRgb($r, $g, $b)
+  } catch { return $null }
+}
+
 # предсозданные кисти — меньше мусора при обновлении
 $brushGreen = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89, 242, 143))
 $brushAmber = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(240, 192, 96))
@@ -621,6 +787,11 @@ $mediaTimer.Add_Tick({
         }
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
+        if ($script:glowShown -and $track.Art -and $script:glowKey -ne $track.Key) {
+          $script:glowKey = $track.Key
+          $glowColor = Get-ArtColor $track.Art
+          if ($glowColor) { Update-GlowColor $glowColor }
+        }
       } else {
         $script:lastStatus = ''
       }
@@ -676,6 +847,25 @@ $reconnectTimer.Add_Tick({
     } catch { }
   })
 $reconnectTimer.Start()
+
+# тумблер подсветки: файл glow.on рядом со скриптом
+$glowTimer = New-Object Windows.Threading.DispatcherTimer
+$glowTimer.Interval = [TimeSpan]::FromSeconds(1)
+$glowTimer.Add_Tick({
+    try {
+      $on = Test-Path -LiteralPath $script:glowFlag
+      if ($on -and -not $script:glowShown) {
+        Show-Glow
+        if ($script:lastTrack -and $script:lastTrack.Art) {
+          $c = Get-ArtColor $script:lastTrack.Art
+          if ($c) { Update-GlowColor $c }
+        }
+      } elseif (-not $on -and $script:glowShown) {
+        Hide-Glow
+      }
+    } catch { }
+  })
+$glowTimer.Start()
 
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
