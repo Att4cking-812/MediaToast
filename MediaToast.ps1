@@ -1040,6 +1040,7 @@ $script:lastMute = [BrickyardAudio.Endpoint]::GetMute()
 Write-Log ('started v2 session=' + ($null -ne $sessionManager) + ' volume=' + $script:lastVolume + ' track=' + $(if ($script:lastTrack) { $script:lastTrack.Title } else { '-' }))
 
 # ---------------------------------------------------------------- горячие клавиши
+# Отключены: управление удобнее с наушников и панели. Код оставлен на будущее.
 $script:hotkeyHook = $null
 
 function Toggle-PlayPause {
@@ -1093,7 +1094,6 @@ $app = New-Object Windows.Application
 $app.Add_Startup({
     $window.Show()
     $window.Visibility = 'Hidden'
-    Register-Hotkeys
 
     if ($Demo) {
       $art = $null
