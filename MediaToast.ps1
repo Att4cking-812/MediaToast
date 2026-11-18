@@ -272,7 +272,11 @@ $xaml = @'
                        HorizontalAlignment="Center" VerticalAlignment="Center"/>
             <Border x:Name="CoverArt" CornerRadius="12" Background="Transparent" Opacity="0" RenderTransformOrigin="0.5,0.5">
               <Border.RenderTransform>
-                <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
+                <TransformGroup>
+                  <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
+                  <RotateTransform x:Name="ArtRotate" Angle="0" CenterX="0.5" CenterY="0.5"/>
+                  <TranslateTransform x:Name="ArtSlide" X="0"/>
+                </TransformGroup>
               </Border.RenderTransform>
             </Border>
             <Border CornerRadius="12" BorderBrush="#26FFFFFF" BorderThickness="1" IsHitTestVisible="False"/>
@@ -439,6 +443,9 @@ $coverArt = $window.FindName('CoverArt')
 $coverGlyph = $window.FindName('CoverGlyph')
 $ring = $window.FindName('Ring')
 $ringTrack = $window.FindName('RingTrack')
+$artRotate = $window.FindName('ArtRotate')
+$artSlide = $window.FindName('ArtSlide')
+$coverBorder = $window.FindName('CoverBorder')
 $titleText = $window.FindName('TitleText')
 $artistText = $window.FindName('ArtistText')
 $albumText = $window.FindName('AlbumText')
@@ -464,6 +471,9 @@ $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
 $script:glowStatic = $false
+$script:vinylFlag = Join-Path $PSScriptRoot 'vinyl.on'
+$script:vinylOn = $false
+$script:vinylSpin = $null
 $script:glowAudio = $false
 $script:glowLevel = 0.0
 $script:breathTimer = $null
@@ -522,6 +532,8 @@ function New-GlowFill([string]$side, $color, [string]$kind) {
   $brush = New-Object Windows.Media.LinearGradientBrush
   if ($kind -eq 'core') {
     $stops = @(@(170, 0.0), @(90, 0.45), @(0, 1.0))
+  } elseif ($kind -eq 'bloom') {
+    $stops = @(@(58, 0.0), @(26, 0.35), @(0, 1.0))
   } else {
     $stops = @(@(200, 0.0), @(110, 0.20), @(40, 0.55), @(0, 1.0))
   }
@@ -565,19 +577,23 @@ function New-GlowWindow([string]$side) {
   $w.Opacity = 0
 
   $grid = New-Object Windows.Controls.Grid
+  $bloom = New-Object Windows.Shapes.Rectangle
+  $bloom.Fill = (New-GlowFill $side $script:glowColor 'bloom')
   $soft = New-Object Windows.Shapes.Rectangle
   $soft.Fill = (New-GlowFill $side $script:glowColor 'soft')
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
 
+  $bloomT = 220
   $softT = 84
   $coreT = 16
   switch ($side) {
-    'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
-    'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
-    'left'   { $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT }
-    'right'  { $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT }
+    'top'    { $bloom.VerticalAlignment = 'Top'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
+    'bottom' { $bloom.VerticalAlignment = 'Bottom'; $bloom.Height = $bloomT; $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
+    'left'   { $bloom.HorizontalAlignment = 'Left'; $bloom.Width = $bloomT; $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT }
+    'right'  { $bloom.HorizontalAlignment = 'Right'; $bloom.Width = $bloomT; $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT }
   }
+  [void]$grid.Children.Add($bloom)
   [void]$grid.Children.Add($soft)
   [void]$grid.Children.Add($core)
   $w.Content = $grid
@@ -596,7 +612,7 @@ function New-GlowWindow([string]$side) {
   $w.Show()
   Set-ClickThrough $w
   $w.Visibility = 'Hidden'
-  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core }
+  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core; Bloom = $bloom }
   return $w
 }
 
@@ -606,6 +622,7 @@ function Update-GlowColor($color) {
   Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
   foreach ($p in $script:glowParts) {
     try {
+      $p.Bloom.Fill = (New-GlowFill $p.Side $color 'bloom')
       $p.Soft.Fill = (New-GlowFill $p.Side $color 'soft')
       $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
     } catch { }
@@ -1068,13 +1085,24 @@ function Fade-Art($art) {
   try {
     Set-Art $art
     $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $null)
-    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.45, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
+    $fadeIn = New-Object Windows.Media.Animation.DoubleAnimation(0.35, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(170)))
     $fadeIn.EasingFunction = $easeOut
     $coverArt.BeginAnimation([Windows.UIElement]::OpacityProperty, $fadeIn)
-    $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(1.06, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(220)))
-    $zoomIn.EasingFunction = $easeOut
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
-    $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+
+    # новая обложка въезжает справа
+    if ($artSlide) {
+      $artSlide.BeginAnimation([Windows.Media.TranslateTransform]::XProperty, $null)
+      $slideIn = New-Object Windows.Media.Animation.DoubleAnimation(48.0, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(260)))
+      $slideIn.EasingFunction = $easeOut
+      $artSlide.BeginAnimation([Windows.Media.TranslateTransform]::XProperty, $slideIn)
+    }
+
+    if (-not $script:vinylOn) {
+      $zoomIn = New-Object Windows.Media.Animation.DoubleAnimation(1.06, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(220)))
+      $zoomIn.EasingFunction = $easeOut
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $zoomIn)
+      $artScale.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $zoomIn)
+    }
     $script:pendingArt = $null
     $artTimer.Stop()
   } catch { }
@@ -1253,6 +1281,35 @@ $reconnectTimer.Add_Tick({
 $reconnectTimer.Start()
 
 # тумблер подсветки: файл glow.on рядом со скриптом
+function Apply-Vinyl([bool]$on) {
+  try {
+    if ($on -eq $script:vinylOn) { return }
+    $script:vinylOn = $on
+    if ($on) {
+      $coverBorder.CornerRadius = New-Object Windows.CornerRadius 38.0
+      $coverArt.CornerRadius = New-Object Windows.CornerRadius 38.0
+      if (-not $script:vinylSpin) {
+        $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
+        $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+      }
+      $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+    } else {
+      $coverBorder.CornerRadius = New-Object Windows.CornerRadius 12.0
+      $coverArt.CornerRadius = New-Object Windows.CornerRadius 12.0
+      $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
+      $artRotate.Angle = 0
+    }
+    Write-Log ('vinyl ' + $on)
+  } catch { }
+}
+
+$vinylTimer = New-Object Windows.Threading.DispatcherTimer
+$vinylTimer.Interval = [TimeSpan]::FromSeconds(1)
+$vinylTimer.Add_Tick({
+    try { Apply-Vinyl (Test-Path -LiteralPath $script:vinylFlag) } catch { }
+  })
+$vinylTimer.Start()
+
 $glowTimer = New-Object Windows.Threading.DispatcherTimer
 $glowTimer.Interval = [TimeSpan]::FromSeconds(1)
 $glowTimer.Add_Tick({
