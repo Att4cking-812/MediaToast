@@ -140,7 +140,7 @@ function Get-CurrentTrack {
           $bitmap = New-Object Windows.Media.Imaging.BitmapImage
           $bitmap.BeginInit()
           $bitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-          $bitmap.DecodePixelWidth = 152
+          $bitmap.DecodePixelWidth = 256
           $bitmap.StreamSource = New-Object System.IO.MemoryStream(, $bytes)
           $bitmap.EndInit()
           $bitmap.Freeze()
@@ -1235,7 +1235,7 @@ $app.Add_Startup({
           $bitmap = New-Object Windows.Media.Imaging.BitmapImage
           $bitmap.BeginInit()
           $bitmap.CacheOption = [Windows.Media.Imaging.BitmapCacheOption]::OnLoad
-          $bitmap.DecodePixelWidth = 152
+          $bitmap.DecodePixelWidth = 256
           $bitmap.StreamSource = New-Object System.IO.MemoryStream(, $bytes)
           $bitmap.EndInit()
           $bitmap.Freeze()
