@@ -333,6 +333,7 @@ $script:glowWindows = @()
 $script:glowShown = $false
 $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
+$script:glowVol = -1
 
 Add-Type @"
 using System;
@@ -358,11 +359,13 @@ function Set-ClickThrough($win) {
 
 function New-GlowBrush([string]$side, $color) {
   $brush = New-Object Windows.Media.LinearGradientBrush
-  $c1 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
-  $c2 = [Windows.Media.Color]::FromArgb(90, $color.R, $color.G, $color.B)
+  $c0 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
+  $c1 = [Windows.Media.Color]::FromArgb(150, $color.R, $color.G, $color.B)
+  $c2 = [Windows.Media.Color]::FromArgb(45, $color.R, $color.G, $color.B)
   $c3 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.0)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.45)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c0, 0.0)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.22)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.60)))
   $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c3, 1.0)))
   switch ($side) {
     'top'    { $brush.StartPoint = New-Object Windows.Point(0.5, 0.0); $brush.EndPoint = New-Object Windows.Point(0.5, 1.0) }
@@ -370,6 +373,16 @@ function New-GlowBrush([string]$side, $color) {
     'left'   { $brush.StartPoint = New-Object Windows.Point(0.0, 0.5); $brush.EndPoint = New-Object Windows.Point(1.0, 0.5) }
     'right'  { $brush.StartPoint = New-Object Windows.Point(1.0, 0.5); $brush.EndPoint = New-Object Windows.Point(0.0, 0.5) }
   }
+
+  # лёгкий перелив: средняя точка плавно уходит в соседний оттенок
+  try {
+    $shift = [Windows.Media.Color]::FromArgb(150, $color.B, $color.R, $color.G)
+    $drift = New-Object Windows.Media.Animation.ColorAnimation($c1, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(9)))
+    $drift.AutoReverse = $true
+    $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+    $brush.GradientStops[1].BeginAnimation([Windows.Media.GradientStop]::ColorProperty, $drift)
+  } catch { }
+
   return $brush
 }
 
@@ -420,23 +433,35 @@ function Update-GlowColor($color) {
   }
 }
 
+function Start-GlowBreathing {
+  $vol = [BrickyardAudio.Endpoint]::GetVolumePercent()
+  if ($vol -lt 0) { $vol = 50 }
+  $script:glowVol = $vol
+  $factor = 0.8 + 0.4 * ([double]$vol / 100.0)
+  $lo = 0.07 * $factor
+  $hi = 0.24 * $factor
+  $delays = @(0, 400, 200, 600)
+  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+    $w = $script:glowWindows[$i]
+    try {
+      $anim = New-Object Windows.Media.Animation.DoubleAnimation([double]$lo, [double]$hi, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
+      $anim.AutoReverse = $true
+      $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+      $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
+      $anim.EasingFunction = $easeOut
+      $w.BeginAnimation([Windows.Window]::OpacityProperty, $anim)
+    } catch { }
+  }
+}
+
 function Show-Glow {
   if ($script:glowShown) { return }
   $sides = @('top', 'bottom', 'left', 'right')
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
-  $delays = @(0, 400, 200, 600)
-  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-    $w = $script:glowWindows[$i]
-    $w.Visibility = 'Visible'
-    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.09, 0.27, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
-    $anim.AutoReverse = $true
-    $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-    $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
-    $anim.EasingFunction = $easeOut
-    $w.BeginAnimation([Windows.Window]::OpacityProperty, $anim)
-  }
+  foreach ($w in $script:glowWindows) { $w.Visibility = 'Visible' }
+  Start-GlowBreathing
   $script:glowShown = $true
   Write-Log 'glow on'
 }
@@ -488,6 +513,12 @@ function Get-ArtColor($bmp) {
     if ($maxC -gt 185) {
       $k = 185.0 / $maxC
       $r = [int]($r * $k); $g = [int]($g * $k); $b = [int]($b * $k)
+    } elseif ($maxC -lt 125) {
+      # тёмные обложки дают почти невидимую подсветку — поднимаем яркость
+      $k = 150.0 / [Math]::Max(1, $maxC)
+      $r = [int][Math]::Min(255, $r * $k)
+      $g = [int][Math]::Min(255, $g * $k)
+      $b = [int][Math]::Min(255, $b * $k)
     }
     return [Windows.Media.Color]::FromRgb($r, $g, $b)
   } catch { return $null }
@@ -908,6 +939,9 @@ $glowTimer.Add_Tick({
         }
       } elseif (-not $on -and $script:glowShown) {
         Hide-Glow
+      } elseif ($on -and $script:glowShown) {
+        $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
+        if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Start-GlowBreathing }
       }
     } catch { }
   })
