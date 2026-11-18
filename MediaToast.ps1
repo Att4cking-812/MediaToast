@@ -533,6 +533,7 @@ $script:vinylSpinning = $false
 $script:vinylSpin = $null
 $script:glowAudio = $false
 $script:glowLevel = 0.0
+$script:energyAvg = 0.0
 $script:breathTimer = $null
 $script:breathT = 0.0
 $script:beatLog = [DateTime]::MinValue
@@ -590,7 +591,7 @@ function New-GlowFill([string]$side, $color, [string]$kind) {
   if ($kind -eq 'core') {
     $stops = @(@(170, 0.0), @(90, 0.45), @(0, 1.0))
   } elseif ($kind -eq 'bloom') {
-    $stops = @(@(58, 0.0), @(26, 0.35), @(0, 1.0))
+    $stops = @(@(85, 0.0), @(45, 0.35), @(0, 1.0))
   } else {
     $stops = @(@(200, 0.0), @(110, 0.20), @(40, 0.55), @(0, 1.0))
   }
@@ -682,10 +683,16 @@ function Update-GlowColor($color) {
       [int]($color.B * 0.7 + 40 * 0.3))
   }
   $script:glowColor = $color
+
+  # второй тон для глубины: сдвигаем каналы на четверть
+  $sec = [Windows.Media.Color]::FromRgb(
+    [int]($color.R * 0.72 + $color.B * 0.28),
+    [int]($color.G * 0.72 + $color.R * 0.28),
+    [int]($color.B * 0.72 + $color.G * 0.28))
   Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
   foreach ($p in $script:glowParts) {
     try {
-      $p.Bloom.Fill = (New-GlowFill $p.Side $color 'bloom')
+      $p.Bloom.Fill = (New-GlowFill $p.Side $sec 'bloom')
       $p.Soft.Fill = (New-GlowFill $p.Side $color 'soft')
       $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
     } catch { }
@@ -715,6 +722,14 @@ function Start-GlowBreathing {
           $period = if ($script:presetPeriod) { [double]$script:presetPeriod } else { 3.2 }
           $amp = if ($script:presetAmp) { [double]$script:presetAmp } else { 0.21 }
           $pulse = if ($script:presetPulse) { [double]$script:presetPulse } else { 0.26 }
+
+          # авто-режим: слушаем среднюю энергию и подбираем характер
+          $script:energyAvg = ($script:energyAvg * 0.995) + ($script:glowLevel * 0.005)
+          if ($script:settings -and $script:settings.glowPreset -eq 'auto') {
+            if ($script:energyAvg -gt 0.62) { $period = 2.2; $amp = 0.24; $pulse = 0.40 }
+            elseif ($script:energyAvg -lt 0.28) { $period = 4.4; $amp = 0.15; $pulse = 0.13 }
+            else { $period = 3.2; $amp = 0.21; $pulse = 0.26 }
+          }
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
