@@ -94,6 +94,7 @@ $xaml = @'
           <ColumnDefinition Width="Auto"/>
           <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
+        <Border x:Name="HeaderHit" Grid.ColumnSpan="2" Background="Transparent" Cursor="Hand" ToolTip="Скопировать трек" Panel.ZIndex="10"/>
         <Border Grid.Column="0" Width="58" Height="58" CornerRadius="12" Background="#2A2333" Margin="0,0,12,0">
           <Grid>
             <TextBlock x:Name="CoverGlyph" Text="♪" FontSize="24" Foreground="#6B5E7D"
@@ -296,6 +297,7 @@ $pillGlow = $window.FindName('PillGlow')
 $glowState = $window.FindName('GlowState')
 $glowDot = $window.FindName('GlowDot')
 $pillStats = $window.FindName('PillStats')
+$headerHit = $window.FindName('HeaderHit')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
 $script:trayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MusicTray.lnk'
@@ -398,6 +400,8 @@ function Update-Info {
     $props = $null
     try { $props = Await ($s.TryGetMediaPropertiesAsync()) $wtProps } catch { $props = $null }
     if ($props -and $props.Title) {
+      $script:curTitle = [string]$props.Title
+      $script:curArtist = [string]$props.Artist
       $titleText.Text = [string]$props.Title
       $artistText.Text = if ($props.Artist) { [string]$props.Artist } else { 'Неизвестный исполнитель' }
       $albumText.Text = if ($props.AlbumTitle) { [string]$props.AlbumTitle } else { 'Сингл' }
@@ -528,6 +532,25 @@ $pillStats.Add_MouseLeftButtonUp({
       Start-Process -FilePath 'powershell.exe' -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "' + $stats + '"') -WindowStyle Hidden
     }
     Hide-Panel
+  })
+
+# клик по шапке — скопировать «Исполнитель — Название»
+$script:copyTimer = New-Object Windows.Threading.DispatcherTimer
+$script:copyTimer.Interval = [TimeSpan]::FromMilliseconds(1600)
+$script:copyTimer.Add_Tick({
+    try { $script:copyTimer.Stop(); Update-Info } catch { }
+  })
+
+$headerHit.Add_MouseLeftButtonUp({
+    try {
+      $t = $script:curTitle
+      if (-not $t) { return }
+      $text = if ($script:curArtist) { $script:curArtist + ' — ' + $t } else { $t }
+      Set-Clipboard -Value $text
+      $albumText.Text = 'скопировано в буфер'
+      $script:copyTimer.Stop()
+      $script:copyTimer.Start()
+    } catch { }
   })
 
 # ---------------------------------------------------------------- ховеры
