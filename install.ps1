@@ -69,3 +69,15 @@ if (Test-Path -LiteralPath $trayVbs) {
     Write-Output 'MusicTray не запустился — смотри tray.log.'
   }
 }
+
+# сторож: раз в 5 минут поднимает упавшие компоненты
+$watchdogVbs = Join-Path $root 'Watchdog.vbs'
+if (Test-Path -LiteralPath $watchdogVbs) {
+  try {
+    $action = 'wscript.exe "' + $watchdogVbs + '"'
+    & schtasks /create /tn 'MediaToast Watchdog' /tr $action /sc minute /mo 5 /f | Out-Null
+    Write-Output 'Сторож установлен: задача «MediaToast Watchdog» (каждые 5 минут).'
+  } catch {
+    Write-Output 'Не удалось создать задачу сторожа — не критично.'
+  }
+}
