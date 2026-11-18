@@ -529,6 +529,7 @@ function Apply-Settings {
 Apply-Settings
 $script:vinylFlag = Join-Path $PSScriptRoot 'vinyl.on'
 $script:vinylOn = $false
+$script:vinylSpinning = $false
 $script:vinylSpin = $null
 $script:glowAudio = $false
 $script:glowLevel = 0.0
@@ -1266,14 +1267,16 @@ $mediaTimer.Add_Tick({
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
         if ($script:vinylOn) {
-          if ($isPlaying) {
+          if ($isPlaying -and -not $script:vinylSpinning) {
             if (-not $script:vinylSpin) {
               $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
               $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
             }
             $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
-          } else {
+            $script:vinylSpinning = $true
+          } elseif (-not $isPlaying -and $script:vinylSpinning) {
             $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
+            $script:vinylSpinning = $false
           }
         }
         Track-Listening $track $isPlaying
@@ -1376,12 +1379,16 @@ function Apply-Vinyl([bool]$on) {
         $script:vinylSpin = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(8)))
         $script:vinylSpin.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
       }
-      $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+      if ($script:lastStatus -eq 'Playing') {
+        $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $script:vinylSpin)
+        $script:vinylSpinning = $true
+      }
     } else {
       $coverBorder.CornerRadius = New-Object Windows.CornerRadius 12.0
       $coverArt.CornerRadius = New-Object Windows.CornerRadius 12.0
       $artRotate.BeginAnimation([Windows.Media.RotateTransform]::AngleProperty, $null)
       $artRotate.Angle = 0
+      $script:vinylSpinning = $false
     }
     Write-Log ('vinyl ' + $on)
   } catch { }
