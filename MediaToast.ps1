@@ -315,7 +315,7 @@ function Set-ClickThrough($win) {
 function New-GlowBrush([string]$side, $color) {
   $brush = New-Object Windows.Media.LinearGradientBrush
   $c1 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
-  $c2 = [Windows.Media.Color]::FromArgb(110, $color.R, $color.G, $color.B)
+  $c2 = [Windows.Media.Color]::FromArgb(90, $color.R, $color.G, $color.B)
   $c3 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
   $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.0)))
   $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.45)))
@@ -348,7 +348,7 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 92
+  $thick = 66
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
@@ -386,7 +386,7 @@ function Show-Glow {
   for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
     $w = $script:glowWindows[$i]
     $w.Visibility = 'Visible'
-    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.10, 0.30, [Windows.Duration]([TimeSpan]::FromMilliseconds(2600)))
+    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.07, 0.22, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
     $anim.AutoReverse = $true
     $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
     $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
