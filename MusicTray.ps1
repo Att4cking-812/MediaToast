@@ -448,7 +448,7 @@ function Update-Pills {
   }
 
   $cfg = Get-Settings
-  $names = @{ calm = 'спокойный'; neon = 'неон'; fire = 'огонь' }
+  $names = @{ calm = 'спокойный'; neon = 'неон'; fire = 'огонь'; auto = 'авто по треку' }
   $pname = $names[[string]$cfg.glowPreset]
   if (-not $pname) { $pname = 'неон' }
   $presetState.Text = $pname
@@ -671,11 +671,11 @@ $pillVinyl.Add_MouseLeftButtonUp({
   })
 
 $pillPreset.Add_MouseLeftButtonUp({
-    $order = @('calm', 'neon', 'fire')
+    $order = @('calm', 'neon', 'fire', 'auto')
     $cfg = Get-Settings
     $i = [array]::IndexOf($order, [string]$cfg.glowPreset)
     if ($i -lt 0) { $i = 1 }
-    $cfg.glowPreset = $order[($i + 1) % 3]
+    $cfg.glowPreset = $order[($i + 1) % 4]
     Save-Settings $cfg
     Update-Pills
   })
