@@ -1205,7 +1205,12 @@ $beatTimer.Add_Tick({
       if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
       else { $script:glowLevel = ($script:glowLevel * 0.90) + ($target * 0.10) }
       if ($script:glowLevel -lt 0.015) { $script:glowLevel = 0.015 }
-      $val = 0.06 + ($script:glowLevel * 0.42)
+      # база горит, пока играет музыка; звук делает ярче
+      if ($script:lastStatus -eq 'Playing') {
+        $val = 0.15 + ($script:glowLevel * 0.34)
+      } else {
+        $val = 0.06
+      }
       $factors = @(1.0, 0.92, 1.05, 0.88)
       for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
         $op = [Math]::Min(1.0, [Math]::Max(0.03, $val * $factors[$i]))
