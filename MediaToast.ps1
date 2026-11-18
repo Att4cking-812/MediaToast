@@ -471,6 +471,54 @@ $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
 $script:glowStatic = $false
+$settingsPath = Join-Path $PSScriptRoot 'settings.json'
+
+function Get-DefaultSettings {
+  return @{
+    cardLeft        = 24
+    cardTop         = 24
+    cardWidth       = 384
+    breathSeconds   = 3.2
+    glowSensitivity = 0.12
+    glowPreset      = 'neon'
+  }
+}
+
+function Load-Settings {
+  $s = Get-DefaultSettings
+  try {
+    if (Test-Path -LiteralPath $settingsPath) {
+      $raw = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8
+      $obj = $raw | ConvertFrom-Json
+      foreach ($k in @($s.Keys)) {
+        if ($null -ne $obj.$k) { $s[$k] = $obj.$k }
+      }
+    }
+  } catch { }
+  return $s
+}
+
+function Apply-Settings {
+  $s = Load-Settings
+  $script:settings = $s
+  try {
+    if ($card) {
+      $w = [double]$s.cardWidth
+      if ($w -ge 260 -and $w -le 720) { $card.Width = $w }
+    }
+  } catch { }
+
+  switch ([string]$s.glowPreset) {
+    'calm' { $script:presetPeriod = 4.6; $script:presetAmp = 0.15; $script:presetPulse = 0.13 }
+    'fire' { $script:presetPeriod = 2.2; $script:presetAmp = 0.24; $script:presetPulse = 0.40 }
+    default { $script:presetPeriod = 3.2; $script:presetAmp = 0.21; $script:presetPulse = 0.26 }
+  }
+  $base = [double]$s.breathSeconds
+  if ($base -gt 0.5 -and $base -lt 12) { $script:presetPeriod = $base * ($script:presetPeriod / 3.2) }
+  Write-Log ('settings: preset=' + $s.glowPreset + ' width=' + $s.cardWidth + ' period=' + [math]::Round($script:presetPeriod,2))
+}
+
+Apply-Settings
 $script:vinylFlag = Join-Path $PSScriptRoot 'vinyl.on'
 $script:vinylOn = $false
 $script:vinylSpin = $null
@@ -618,6 +666,12 @@ function New-GlowWindow([string]$side) {
 
 function Update-GlowColor($color) {
   if (-not $color) { return }
+  if ($script:settings -and $script:settings.glowPreset -eq 'fire') {
+    $color = [Windows.Media.Color]::FromRgb(
+      [int]($color.R * 0.7 + 255 * 0.3),
+      [int]($color.G * 0.7 + 110 * 0.3),
+      [int]($color.B * 0.7 + 40 * 0.3))
+  }
   $script:glowColor = $color
   Write-Log ('glow color rgb(' + $color.R + ',' + $color.G + ',' + $color.B + ')')
   foreach ($p in $script:glowParts) {
@@ -643,18 +697,23 @@ function Start-GlowBreathing {
           # уровень музыки (только сессия плеера)
           $peak = 0.0
           try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
-          $target = [Math]::Pow([Math]::Min(1.0, $peak / 0.12), 0.7)
+          $sens = 0.12
+          if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
+          $target = [Math]::Pow([Math]::Min(1.0, $peak / $sens), 0.7)
           if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
           else { $script:glowLevel = ($script:glowLevel * 0.86) + ($target * 0.14) }
 
+          $period = if ($script:presetPeriod) { [double]$script:presetPeriod } else { 3.2 }
+          $amp = if ($script:presetAmp) { [double]$script:presetAmp } else { 0.21 }
+          $pulse = if ($script:presetPulse) { [double]$script:presetPulse } else { 0.26 }
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
             if ($paused) { $op = 0.015 }
             else {
               $phase = $script:breathT + $offsets[$i]
-              $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / 3.2)
-              $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.26)
+              $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
+              $op = 0.09 + ($amp * $breath) + ($script:glowLevel * $pulse)
             }
             if ($op -lt 0.01) { $op = 0.015 }
             if ($op -gt 0.62) { $op = 0.62 }
@@ -1146,8 +1205,10 @@ function Show-Toast([string]$mode) {
 
     $window.UpdateLayout()
     $area = [System.Windows.SystemParameters]::WorkArea
-    $window.Left = $area.Left + 24
-    $window.Top = $area.Top + 24
+    $left = if ($script:settings) { [double]$script:settings.cardLeft } else { 24 }
+    $top = if ($script:settings) { [double]$script:settings.cardTop } else { 24 }
+    $window.Left = $area.Left + $left
+    $window.Top = $area.Top + $top
 
     $script:hiding = $false
     $hideTimer.Stop()
@@ -1324,6 +1385,23 @@ $vinylTimer.Add_Tick({
     try { Apply-Vinyl (Test-Path -LiteralPath $script:vinylFlag) } catch { }
   })
 $vinylTimer.Start()
+
+# подхватываем изменения settings.json на лету
+$script:settingsStamp = ''
+try { if (Test-Path -LiteralPath $settingsPath) { $script:settingsStamp = (Get-Item -LiteralPath $settingsPath).LastWriteTimeUtc.Ticks } } catch { }
+$settingsTimer = New-Object Windows.Threading.DispatcherTimer
+$settingsTimer.Interval = [TimeSpan]::FromSeconds(2)
+$settingsTimer.Add_Tick({
+    try {
+      $stamp = ''
+      if (Test-Path -LiteralPath $settingsPath) { $stamp = (Get-Item -LiteralPath $settingsPath).LastWriteTimeUtc.Ticks }
+      if ($stamp -and $stamp -ne $script:settingsStamp) {
+        $script:settingsStamp = $stamp
+        Apply-Settings
+      }
+    } catch { }
+  })
+$settingsTimer.Start()
 
 $glowTimer = New-Object Windows.Threading.DispatcherTimer
 $glowTimer.Interval = [TimeSpan]::FromSeconds(1)
