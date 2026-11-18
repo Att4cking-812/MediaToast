@@ -245,6 +245,14 @@ $xaml = @'
       <Border x:Name="CardBackdrop" Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Opacity="0"
               Background="Transparent" IsHitTestVisible="False"/>
       <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" Background="#CE14111C" IsHitTestVisible="False"/>
+      <Border Grid.ColumnSpan="2" Margin="-12" CornerRadius="15" IsHitTestVisible="False">
+        <Border.Background>
+          <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+            <GradientStop Color="#16FFFFFF" Offset="0"/>
+            <GradientStop Color="#00FFFFFF" Offset="0.42"/>
+          </LinearGradientBrush>
+        </Border.Background>
+      </Border>
 
       <Grid Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
         <Ellipse x:Name="RingTrack" Width="84" Height="84" Stroke="#22FFFFFF" StrokeThickness="2" Visibility="Collapsed"/>
@@ -260,6 +268,7 @@ $xaml = @'
                 <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
               </Border.RenderTransform>
             </Border>
+            <Border CornerRadius="12" BorderBrush="#26FFFFFF" BorderThickness="1" IsHitTestVisible="False"/>
           </Grid>
         </Border>
       </Grid>
