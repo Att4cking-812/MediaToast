@@ -409,6 +409,8 @@ $script:glowVol = -1
 $script:glowStatic = $false
 $script:glowAudio = $false
 $script:glowLevel = 0.0
+$script:breathTimer = $null
+$script:breathT = 0.0
 $script:beatLog = [DateTime]::MinValue
 $script:tintKey = ''
 $script:accentColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
@@ -554,23 +556,38 @@ function Update-GlowColor($color) {
 }
 
 function Start-GlowBreathing {
-  $vol = [BrickyardAudio.Endpoint]::GetVolumePercent()
-  if ($vol -lt 0) { $vol = 50 }
-  $factor = 0.88 + 0.42 * ([double]$vol / 100.0)
-  $lo = 0.11 * $factor
-  $hi = 0.34 * $factor
-  $delays = @(0, 400, 200, 600)
-  for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-    $w = $script:glowWindows[$i]
-    try {
-      $anim = New-Object Windows.Media.Animation.DoubleAnimation([double]$lo, [double]$hi, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
-      $anim.AutoReverse = $true
-      $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-      $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
-      $anim.EasingFunction = $easeOut
-      $w.BeginAnimation([Windows.Window]::OpacityProperty, $anim)
-    } catch { }
+  $script:breathT = 0.0
+  $script:glowLevel = 0.0
+  if (-not $script:breathTimer) {
+    $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
+    $script:breathTimer.Interval = [TimeSpan]::FromMilliseconds(40)
+    $script:breathTimer.Add_Tick({
+        try {
+          if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
+          $script:breathT += 0.04
+
+          # уровень музыки (только сессия плеера)
+          $peak = 0.0
+          try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
+          $db = 20.0 * [Math]::Log10([Math]::Max($peak, 0.00001))
+          $norm = [Math]::Max(0.0, [Math]::Min(1.0, ($db + 48.0) / 42.0))
+          $target = [Math]::Pow($norm, 0.8)
+          if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
+          else { $script:glowLevel = ($script:glowLevel * 0.88) + ($target * 0.12) }
+
+          $offsets = @(0.0, 0.34, 0.18, 0.52)
+          for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
+            $phase = $script:breathT + $offsets[$i]
+            $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / 3.2)
+            $op = 0.09 + (0.21 * $breath) + ($script:glowLevel * 0.20)
+            if ($op -lt 0.04) { $op = 0.04 }
+            if ($op -gt 0.55) { $op = 0.55 }
+            $script:glowWindows[$i].Opacity = $op
+          }
+        } catch { }
+      })
   }
+  $script:breathTimer.Start()
 }
 
 function Show-Glow {
@@ -579,7 +596,9 @@ function Show-Glow {
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
-  foreach ($w in $script:glowWindows) { $w.Visibility = 'Visible' }
+  foreach ($w in $script:glowWindows) {
+    try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Visibility = 'Visible' } catch { }
+  }
   Start-GlowBreathing
   $script:glowShown = $true
   Write-Log 'glow on'
@@ -594,8 +613,7 @@ function Hide-Glow {
     } catch { }
   }
   $script:glowShown = $false
-  $script:glowAudio = $false
-  $script:glowLevel = 0.0
+  if ($script:breathTimer) { $script:breathTimer.Stop() }
   Write-Log 'glow off'
 }
 
