@@ -215,8 +215,18 @@ $xaml = @'
         ShowInTaskbar="False" ShowActivated="False" Topmost="True" Focusable="False"
         ResizeMode="NoResize" SizeToContent="WidthAndHeight" Opacity="0">
   <Border x:Name="Card" Width="384" CornerRadius="16" Padding="12"
-          Background="#FA171321" BorderBrush="#2EFFFFFF" BorderThickness="1"
+          Background="#FA171321" BorderThickness="1"
           RenderTransformOrigin="0,0.5">
+    <Border.BorderBrush>
+      <LinearGradientBrush x:Name="CardBorderBrush" StartPoint="0,0" EndPoint="1,1">
+        <LinearGradientBrush.RelativeTransform>
+          <RotateTransform x:Name="BorderSpin" CenterX="0.5" CenterY="0.5" Angle="0"/>
+        </LinearGradientBrush.RelativeTransform>
+        <GradientStop Color="#33FFFFFF" Offset="0"/>
+        <GradientStop Color="#88FFFFFF" Offset="0.5"/>
+        <GradientStop Color="#22FFFFFF" Offset="1"/>
+      </LinearGradientBrush>
+    </Border.BorderBrush>
     <Border.RenderTransform>
       <TransformGroup>
         <ScaleTransform x:Name="CardScale" ScaleX="1" ScaleY="1"/>
@@ -307,6 +317,23 @@ $xaml = @'
 
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
 $card = $window.FindName('Card')
+$cardBorderBrush = $window.FindName('CardBorderBrush')
+$borderSpin = $window.FindName('BorderSpin')
+
+try {
+  $spinAnim = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 360.0, [Windows.Duration]([TimeSpan]::FromSeconds(7)))
+  $spinAnim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
+  $borderSpin.BeginAnimation([Windows.Media.Animation.RotateTransform]::AngleProperty, $spinAnim)
+} catch { }
+
+function Update-CardBorder($color) {
+  if (-not $color -or -not $cardBorderBrush) { return }
+  try {
+    $cardBorderBrush.GradientStops[0].Color = [Windows.Media.Color]::FromArgb(70, $color.R, $color.G, $color.B)
+    $cardBorderBrush.GradientStops[1].Color = [Windows.Media.Color]::FromArgb(170, $color.R, $color.G, $color.B)
+    $cardBorderBrush.GradientStops[2].Color = [Windows.Media.Color]::FromArgb(36, $color.R, $color.G, $color.B)
+  } catch { }
+}
 $cardScale = $window.FindName('CardScale')
 $cardSlide = $window.FindName('CardSlide')
 $artScale = $window.FindName('ArtScale')
@@ -872,6 +899,7 @@ $mediaTimer.Add_Tick({
           $tint = Get-ArtColor $track.Art
           if ($tint) {
             try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
+            Update-CardBorder $tint
           }
         }
         if ($script:glowShown -and $track.Art -and $script:glowKey -ne $track.Key) {
