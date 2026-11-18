@@ -306,6 +306,7 @@ $xaml = @'
 '@
 
 $window = [Windows.Markup.XamlReader]::Parse($xaml)
+$card = $window.FindName('Card')
 $cardScale = $window.FindName('CardScale')
 $cardSlide = $window.FindName('CardSlide')
 $artScale = $window.FindName('ArtScale')
@@ -334,6 +335,7 @@ $script:glowShown = $false
 $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
+$script:tintKey = ''
 
 Add-Type @"
 using System;
@@ -360,13 +362,15 @@ function Set-ClickThrough($win) {
 function New-GlowBrush([string]$side, $color) {
   $brush = New-Object Windows.Media.LinearGradientBrush
   $c0 = [Windows.Media.Color]::FromArgb(255, $color.R, $color.G, $color.B)
-  $c1 = [Windows.Media.Color]::FromArgb(150, $color.R, $color.G, $color.B)
-  $c2 = [Windows.Media.Color]::FromArgb(45, $color.R, $color.G, $color.B)
-  $c3 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
+  $c1 = [Windows.Media.Color]::FromArgb(205, $color.R, $color.G, $color.B)
+  $c2 = [Windows.Media.Color]::FromArgb(120, $color.R, $color.G, $color.B)
+  $c3 = [Windows.Media.Color]::FromArgb(38, $color.R, $color.G, $color.B)
+  $c4 = [Windows.Media.Color]::FromArgb(0, $color.R, $color.G, $color.B)
   $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c0, 0.0)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.22)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.60)))
-  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c3, 1.0)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c1, 0.06)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c2, 0.24)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c3, 0.58)))
+  $brush.GradientStops.Add((New-Object Windows.Media.GradientStop($c4, 1.0)))
   switch ($side) {
     'top'    { $brush.StartPoint = New-Object Windows.Point(0.5, 0.0); $brush.EndPoint = New-Object Windows.Point(0.5, 1.0) }
     'bottom' { $brush.StartPoint = New-Object Windows.Point(0.5, 1.0); $brush.EndPoint = New-Object Windows.Point(0.5, 0.0) }
@@ -376,11 +380,11 @@ function New-GlowBrush([string]$side, $color) {
 
   # лёгкий перелив: средняя точка плавно уходит в соседний оттенок
   try {
-    $shift = [Windows.Media.Color]::FromArgb(150, $color.B, $color.R, $color.G)
-    $drift = New-Object Windows.Media.Animation.ColorAnimation($c1, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(9)))
+    $shift = [Windows.Media.Color]::FromArgb(120, $color.B, $color.R, $color.G)
+    $drift = New-Object Windows.Media.Animation.ColorAnimation($c2, $shift, [Windows.Duration]([TimeSpan]::FromSeconds(9)))
     $drift.AutoReverse = $true
     $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-    $brush.GradientStops[1].BeginAnimation([Windows.Media.GradientStop]::ColorProperty, $drift)
+    $brush.GradientStops[2].BeginAnimation([Windows.Media.GradientStop]::ColorProperty, $drift)
   } catch { }
 
   return $brush
@@ -863,6 +867,13 @@ $mediaTimer.Add_Tick({
         $script:lastStatus = $track.Status
         Set-Equalizer $isPlaying
         Track-Listening $track $isPlaying
+        if ($track.Art -and $script:tintKey -ne $track.Key) {
+          $script:tintKey = $track.Key
+          $tint = Get-ArtColor $track.Art
+          if ($tint) {
+            try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
+          }
+        }
         if ($script:glowShown -and $track.Art -and $script:glowKey -ne $track.Key) {
           $script:glowKey = $track.Key
           $glowColor = Get-ArtColor $track.Art
