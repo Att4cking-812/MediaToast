@@ -242,18 +242,23 @@ $xaml = @'
         <ColumnDefinition Width="*"/>
       </Grid.ColumnDefinitions>
 
-      <Border x:Name="CoverBorder" Grid.Column="0" Width="76" Height="76" CornerRadius="12"
-              Background="#2A2333" VerticalAlignment="Center" Margin="0,0,12,0">
-        <Grid>
-          <TextBlock x:Name="CoverGlyph" Text="♪" FontSize="30" Foreground="#6B5E7D"
-                     HorizontalAlignment="Center" VerticalAlignment="Center"/>
-          <Border x:Name="CoverArt" CornerRadius="12" Background="Transparent" Opacity="0" RenderTransformOrigin="0.5,0.5">
-            <Border.RenderTransform>
-              <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
-            </Border.RenderTransform>
-          </Border>
-        </Grid>
-      </Border>
+      <Grid Grid.Column="0" Width="84" Height="84" VerticalAlignment="Center" Margin="0,0,8,0">
+        <Ellipse x:Name="RingTrack" Width="84" Height="84" Stroke="#22FFFFFF" StrokeThickness="2" Visibility="Collapsed"/>
+        <Path x:Name="Ring" Stroke="#6FD8FF" StrokeThickness="2.4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+              Width="84" Height="84" HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed"/>
+        <Border x:Name="CoverBorder" Width="76" Height="76" CornerRadius="12"
+                Background="#2A2333" VerticalAlignment="Center" HorizontalAlignment="Center">
+          <Grid>
+            <TextBlock x:Name="CoverGlyph" Text="♪" FontSize="30" Foreground="#6B5E7D"
+                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <Border x:Name="CoverArt" CornerRadius="12" Background="Transparent" Opacity="0" RenderTransformOrigin="0.5,0.5">
+              <Border.RenderTransform>
+                <ScaleTransform x:Name="ArtScale" ScaleX="1" ScaleY="1"/>
+              </Border.RenderTransform>
+            </Border>
+          </Grid>
+        </Border>
+      </Grid>
 
       <Grid x:Name="TextCol" Grid.Column="1" VerticalAlignment="Center">
         <Grid.RowDefinitions>
@@ -339,6 +344,8 @@ $cardSlide = $window.FindName('CardSlide')
 $artScale = $window.FindName('ArtScale')
 $coverArt = $window.FindName('CoverArt')
 $coverGlyph = $window.FindName('CoverGlyph')
+$ring = $window.FindName('Ring')
+$ringTrack = $window.FindName('RingTrack')
 $titleText = $window.FindName('TitleText')
 $artistText = $window.FindName('ArtistText')
 $albumText = $window.FindName('AlbumText')
@@ -363,6 +370,7 @@ $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
 $script:tintKey = ''
+$script:accentColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 
 Add-Type @"
 using System;
@@ -678,14 +686,43 @@ function Update-VolumeBar([int]$percent, [bool]$muted) {
   }
 }
 
+function Update-Ring([double]$ratio, $color) {
+  try {
+    if ($ratio -le 0.0005 -or $ratio -gt 1.0) { $ring.Visibility = 'Collapsed'; if ($ringTrack) { $ringTrack.Visibility = 'Collapsed' }; return }
+    if ($ringTrack) { $ringTrack.Visibility = 'Visible' }
+    $size = 84.0
+    $c = $size / 2.0
+    $r = ($size / 2.0) - 2.0
+    $startDeg = -90.0
+    $endDeg = -90.0 + 360.0 * $ratio
+    $a1 = $startDeg * [Math]::PI / 180.0
+    $a2 = $endDeg * [Math]::PI / 180.0
+    $x1 = $c + $r * [Math]::Cos($a1)
+    $y1 = $c + $r * [Math]::Sin($a1)
+    $x2 = $c + $r * [Math]::Cos($a2)
+    $y2 = $c + $r * [Math]::Sin($a2)
+    $large = if (($endDeg - $startDeg) -gt 180.0) { $true } else { $false }
+
+    $geo = New-Object Windows.Media.StreamGeometry
+    $ctx = $geo.Open()
+    $ctx.BeginFigure((New-Object Windows.Point($x1, $y1)), $false, $false)
+    $ctx.ArcTo((New-Object Windows.Point($x2, $y2)), (New-Object Windows.Size($r, $r)), 0.0, $large, [Windows.Media.SweepDirection]::Clockwise, $true, $false)
+    $ctx.Close()
+    $geo.Freeze()
+    $ring.Data = $geo
+    if ($color) { $ring.Stroke = New-Object Windows.Media.SolidColorBrush($color) }
+    $ring.Visibility = 'Visible'
+  } catch { }
+}
+
 function Update-Progress {
   $progressRow.Visibility = 'Visible'
-  if (-not $script:currentSession) { $progressText.Text = '—:—'; return }
-  try { $timeline = $script:currentSession.GetTimelineProperties() } catch { $progressText.Text = '—:—'; return }
-  if (-not $timeline) { $progressText.Text = '—:—'; return }
+  if (-not $script:currentSession) { $progressText.Text = '—:—'; $ring.Visibility = 'Collapsed'; if ($ringTrack) { $ringTrack.Visibility = 'Collapsed' }; return }
+  try { $timeline = $script:currentSession.GetTimelineProperties() } catch { $progressText.Text = '—:—'; $ring.Visibility = 'Collapsed'; if ($ringTrack) { $ringTrack.Visibility = 'Collapsed' }; return }
+  if (-not $timeline) { $progressText.Text = '—:—'; $ring.Visibility = 'Collapsed'; if ($ringTrack) { $ringTrack.Visibility = 'Collapsed' }; return }
 
   $total = $timeline.EndTime - $timeline.StartTime
-  if ($total.Ticks -le 0) { $progressText.Text = '—:—'; return }
+  if ($total.Ticks -le 0) { $progressText.Text = '—:—'; $ring.Visibility = 'Collapsed'; if ($ringTrack) { $ringTrack.Visibility = 'Collapsed' }; return }
 
   $position = $timeline.Position
   if ($script:lastStatus -eq 'Playing') {
@@ -713,6 +750,7 @@ function Update-Progress {
   $anim.EasingFunction = $null
   $progressFill.BeginAnimation([Windows.FrameworkElement]::WidthProperty, $anim)
   $progressText.Text = (Format-Time $elapsed) + ' — ' + (Format-Time $total)
+  Update-Ring $ratio $script:accentColor
 }
 
 # ---------------------------------------------------------------- анимации
@@ -954,6 +992,7 @@ $mediaTimer.Add_Tick({
           $script:tintKey = $track.Key
           $tint = Get-ArtColor $track.Art
           if ($tint) {
+            $script:accentColor = $tint
             try { if ($card -and $card.Effect) { $card.Effect.Color = $tint } } catch { }
             Update-CardBorder $tint
           }
