@@ -90,32 +90,37 @@ function Refresh-SessionManager {
 
 function Get-CurrentTrack {
   if (-not $script:sessionManager) { return $null }
+
   $sessions = $null
   try { $sessions = $script:sessionManager.GetSessions() } catch { $sessions = $null }
 
   if (-not $sessions -or $sessions.Count -eq 0) {
     $script:currentSession = $null
     $script:emptyTicks++
-    if ($script:emptyTicks -ge 4) {
-      $script:emptyTicks = 0
-      [void](Refresh-SessionManager)
-    }
+    if ($script:emptyTicks -ge 4) { $script:emptyTicks = 0; [void](Refresh-SessionManager) }
     return $null
   }
-  $script:emptyTicks = 0
 
-  $chosen = $null
+  # порядок: сначала те, что реально играют
+  $ordered = New-Object System.Collections.ArrayList
   foreach ($s in $sessions) {
-    try { if ($s.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') { $chosen = $s; break } } catch { }
+    $playing = $false
+    try { $playing = ($s.GetPlaybackInfo().PlaybackStatus.ToString() -eq 'Playing') } catch { }
+    if ($playing) { [void]$ordered.Add($s) }
   }
-  if (-not $chosen) { $chosen = $sessions[0] }
-  $script:currentSession = $chosen
+  foreach ($s in $sessions) { if (-not $ordered.Contains($s)) { [void]$ordered.Add($s) } }
 
-  $track = [pscustomobject]@{ Title = ''; Artist = ''; Album = ''; Art = $null; Key = ''; Status = '' }
-  try { $track.Status = ($chosen.GetPlaybackInfo().PlaybackStatus).ToString() } catch { }
+  foreach ($s in $ordered) {
+    $props = $null
+    try { $props = Await ($s.TryGetMediaPropertiesAsync()) $wtProps } catch { $props = $null }
+    if (-not $props -or -not $props.Title) { continue }
 
-  try {
-    $props = Await ($chosen.TryGetMediaPropertiesAsync()) $wtProps
+    $track = [pscustomobject]@{ Title = ''; Artist = ''; Album = ''; Art = $null; Key = ''; Status = '' }
+    try { $track.Status = ($s.GetPlaybackInfo().PlaybackStatus).ToString() } catch { }
+
+    $script:currentSession = $s
+    $script:emptyTicks = 0
+
     $track.Title = [string]$props.Title
     $track.Artist = [string]$props.Artist
     $track.Album = [string]$props.AlbumTitle
@@ -148,12 +153,16 @@ function Get-CurrentTrack {
       $script:artCacheKey = $track.Key
       $script:artCacheArt = $null
     }
-  } catch { }
 
-  if (-not $track.Key) { $track.Key = ($track.Title + '|' + $track.Artist + '|' + $track.Album) }
-  return $track
+    return $track
+  }
+
+  # сессии есть, но метаданных нет — считаем пустыми и обновляем менеджер
+  $script:currentSession = $null
+  $script:emptyTicks++
+  if ($script:emptyTicks -ge 4) { $script:emptyTicks = 0; [void](Refresh-SessionManager) }
+  return $null
 }
-
 # ---------------------------------------------------------------- окно
 $xaml = @'
 <Window xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
