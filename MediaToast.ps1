@@ -861,6 +861,7 @@ $script:lastVolume = -1
 $script:lastMute = $false
 $script:lastShownKey = ''
 $script:lastShownKey = ''
+$script:lastShownTime = [DateTime]::MinValue
 $script:lastShownAt = [DateTime]::MinValue
 $script:lastBeat = [DateTime]::MinValue
 
@@ -1191,6 +1192,7 @@ function Show-Toast([string]$mode) {
     if ($track -and $track.Title) {
       $titleText.Text = $track.Title
       $script:lastShownKey = $track.Key
+      $script:lastShownTime = (Get-Date).ToUniversalTime()
       $artistText.Text = if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }
       if ($script:volumeMode) {
         $albumText.Text = 'Громкость'
@@ -1259,7 +1261,7 @@ $mediaTimer.Add_Tick({
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
             $holdTimer.Start()
           }
-        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and $track.Key -ne $script:lastShownKey) {
+        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and ($track.Key -ne $script:lastShownKey -or ((Get-Date).ToUniversalTime() - $script:lastShownTime).TotalMinutes -gt 10)) {
           Show-Toast 'track'
         } elseif (-not $isPlaying -and $track.Status -eq 'Paused' -and $script:lastStatus -eq 'Playing') {
           Show-Toast 'pause'
