@@ -544,12 +544,8 @@ function Update-GlowColor($color) {
 }
 
 function Start-GlowBreathing {
-  $vol = [BrickyardAudio.Endpoint]::GetVolumePercent()
-  if ($vol -lt 0) { $vol = 50 }
-  $script:glowVol = $vol
-  $factor = 0.8 + 0.4 * ([double]$vol / 100.0)
-  $lo = 0.10 * $factor
-  $hi = 0.32 * $factor
+  $lo = 0.10
+  $hi = 0.30
   $delays = @(0, 400, 200, 600)
   for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
     $w = $script:glowWindows[$i]
@@ -1181,7 +1177,7 @@ $glowTimer.Add_Tick({
         Hide-Glow
       } elseif ($on -and $script:glowShown) {
         $v = [BrickyardAudio.Endpoint]::GetVolumePercent()
-        if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Start-GlowBreathing }
+        if ($v -ge 0 -and [Math]::Abs($v - $script:glowVol) -ge 8) { Write-Log ('glow volume ' + $v); Start-GlowBreathing }
       }
     } catch { }
   })
@@ -1189,7 +1185,6 @@ $glowTimer.Start()
 
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
-Write-Log ('names: textCol=' + ($null -ne $textCol) + ' ring=' + ($null -ne $ring) + ' backdrop=' + ($null -ne $cardBackdrop) + ' progressRow=' + ($null -ne $progressRow))
 if ($script:lastTrack) { $script:lastKey = $script:lastTrack.Key; $script:lastStatus = $script:lastTrack.Status }
 Set-Equalizer ($script:lastStatus -eq 'Playing')
 $script:lastVolume = [BrickyardAudio.Endpoint]::GetVolumePercent()
