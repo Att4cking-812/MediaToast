@@ -554,8 +554,11 @@ function Update-GlowColor($color) {
 }
 
 function Start-GlowBreathing {
-  $lo = 0.10
-  $hi = 0.30
+  $vol = [BrickyardAudio.Endpoint]::GetVolumePercent()
+  if ($vol -lt 0) { $vol = 50 }
+  $factor = 0.88 + 0.42 * ([double]$vol / 100.0)
+  $lo = 0.11 * $factor
+  $hi = 0.34 * $factor
   $delays = @(0, 400, 200, 600)
   for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
     $w = $script:glowWindows[$i]
@@ -576,11 +579,8 @@ function Show-Glow {
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
-  $script:glowAudio = $false
-  $script:glowLevel = 0.05
-  foreach ($w in $script:glowWindows) {
-    try { $w.BeginAnimation([Windows.Window]::OpacityProperty, $null); $w.Opacity = 0.10; $w.Visibility = 'Visible' } catch { }
-  }
+  foreach ($w in $script:glowWindows) { $w.Visibility = 'Visible' }
+  Start-GlowBreathing
   $script:glowShown = $true
   Write-Log 'glow on'
 }
@@ -697,6 +697,7 @@ $script:lastKey = ''
 $script:lastStatus = ''
 $script:lastVolume = -1
 $script:lastMute = $false
+$script:lastShownKey = ''
 $script:lastShownKey = ''
 $script:lastShownAt = [DateTime]::MinValue
 $script:lastBeat = [DateTime]::MinValue
@@ -1016,6 +1017,7 @@ function Show-Toast([string]$mode) {
 
     if ($track -and $track.Title) {
       $titleText.Text = $track.Title
+      $script:lastShownKey = $track.Key
       $artistText.Text = if ($track.Artist) { $track.Artist } else { 'Неизвестный исполнитель' }
       if ($script:volumeMode) {
         $albumText.Text = 'Громкость'
@@ -1082,7 +1084,7 @@ $mediaTimer.Add_Tick({
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
             $holdTimer.Start()
           }
-        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing') {
+        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and $track.Key -ne $script:lastShownKey) {
           Show-Toast 'track'
         } elseif (-not $isPlaying -and $track.Status -eq 'Paused' -and $script:lastStatus -eq 'Playing') {
           Show-Toast 'pause'
@@ -1196,36 +1198,6 @@ $glowTimer.Add_Tick({
     } catch { }
   })
 $glowTimer.Start()
-
-# яркость подсветки по уровню звука с устройства
-$beatTimer = New-Object Windows.Threading.DispatcherTimer
-$beatTimer.Interval = [TimeSpan]::FromMilliseconds(50)
-$beatTimer.Add_Tick({
-    try {
-      if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
-      $peak = 0.0
-      try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
-      $db = 20.0 * [Math]::Log10([Math]::Max($peak, 0.00001))
-      $norm = [Math]::Max(0.0, [Math]::Min(1.0, ($db + 50.0) / 44.0))
-      $target = [Math]::Pow($norm, 0.75)
-      # быстрая атака, медленное затухание — так слышны удары и бас
-      if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
-      else { $script:glowLevel = ($script:glowLevel * 0.90) + ($target * 0.10) }
-      if ($script:glowLevel -lt 0.015) { $script:glowLevel = 0.015 }
-      # база горит, пока играет музыка; звук делает ярче
-      if ($script:lastStatus -eq 'Playing') {
-        $val = 0.15 + ($script:glowLevel * 0.34)
-      } else {
-        $val = 0.06
-      }
-      $factors = @(1.0, 0.92, 1.05, 0.88)
-      for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
-        $op = [Math]::Min(1.0, [Math]::Max(0.03, $val * $factors[$i]))
-        $script:glowWindows[$i].Opacity = $op
-      }
-    } catch { }
-  })
-$beatTimer.Start()
 
 # ---------------------------------------------------------------- старт
 $script:lastTrack = Get-CurrentTrack
