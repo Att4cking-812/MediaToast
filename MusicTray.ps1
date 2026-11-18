@@ -310,6 +310,21 @@ $xaml = @'
           <TextBlock Grid.Column="1" Text="⟳" FontSize="14" Foreground="#F0C060" VerticalAlignment="Center" Margin="6,0,0,0"/>
         </Grid>
       </Border>
+
+      <Border x:Name="PillTheme" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Тема карточки" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock x:Name="ThemeState" Text="неон" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="⟳" FontSize="14" Foreground="#6FD8FF" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -348,6 +363,8 @@ $vinylState = $window.FindName('VinylState')
 $vinylDot = $window.FindName('VinylDot')
 $pillPreset = $window.FindName('PillPreset')
 $presetState = $window.FindName('PresetState')
+$pillTheme = $window.FindName('PillTheme')
+$themeState = $window.FindName('ThemeState')
 $headerHit = $window.FindName('HeaderHit')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
@@ -365,8 +382,8 @@ function Get-ToastAlive {
 }
 
 function Get-Settings {
-  $keys = @('cardLeft', 'cardTop', 'cardWidth', 'breathSeconds', 'glowSensitivity', 'glowPreset')
-  $defaults = @{ cardLeft = 24; cardTop = 24; cardWidth = 384; breathSeconds = 3.2; glowSensitivity = 0.12; glowPreset = 'neon' }
+  $keys = @('cardLeft', 'cardTop', 'cardWidth', 'breathSeconds', 'glowSensitivity', 'glowPreset', 'cardTheme')
+  $defaults = @{ cardLeft = 24; cardTop = 24; cardWidth = 384; breathSeconds = 3.2; glowSensitivity = 0.12; glowPreset = 'neon'; cardTheme = 'neon' }
   $s = @{}
   foreach ($k in $keys) { $s[$k] = $defaults[$k] }
   try {
@@ -435,6 +452,11 @@ function Update-Pills {
   $pname = $names[[string]$cfg.glowPreset]
   if (-not $pname) { $pname = 'неон' }
   $presetState.Text = $pname
+
+  $themes = @{ neon = 'неон'; minimal = 'минимал'; glass = 'стекло' }
+  $tname = $themes[[string]$cfg.cardTheme]
+  if (-not $tname) { $tname = 'неон' }
+  $themeState.Text = $tname
 }
 
 function Start-Toast {
@@ -654,6 +676,16 @@ $pillPreset.Add_MouseLeftButtonUp({
     $i = [array]::IndexOf($order, [string]$cfg.glowPreset)
     if ($i -lt 0) { $i = 1 }
     $cfg.glowPreset = $order[($i + 1) % 3]
+    Save-Settings $cfg
+    Update-Pills
+  })
+
+$pillTheme.Add_MouseLeftButtonUp({
+    $order = @('neon', 'minimal', 'glass')
+    $cfg = Get-Settings
+    $i = [array]::IndexOf($order, [string]$cfg.cardTheme)
+    if ($i -lt 0) { $i = 0 }
+    $cfg.cardTheme = $order[($i + 1) % 3]
     Save-Settings $cfg
     Update-Pills
   })
