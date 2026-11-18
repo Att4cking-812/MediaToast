@@ -227,6 +227,21 @@ $xaml = @'
           </Grid>
         </Border>
       </Grid>
+
+      <Border x:Name="PillGlow" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Подсветка краёв" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock x:Name="GlowState" Text="выкл" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <Border x:Name="GlowDot" Grid.Column="1" Width="8" Height="8" CornerRadius="4" Background="#3A3148" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
     </StackPanel>
   </Border>
 </Window>
@@ -254,11 +269,15 @@ $toastDot = $window.FindName('ToastDot')
 $pillAuto = $window.FindName('PillAuto')
 $autoState = $window.FindName('AutoState')
 $autoDot = $window.FindName('AutoDot')
+$pillGlow = $window.FindName('PillGlow')
+$glowState = $window.FindName('GlowState')
+$glowDot = $window.FindName('GlowDot')
 
 $script:startupLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MediaToast.lnk'
 $script:trayLnk = Join-Path ([Environment]::GetFolderPath('Startup')) 'MusicTray.lnk'
 $script:toastVbs = Join-Path $root 'MediaToast.vbs'
 $script:trayVbs = Join-Path $root 'MusicTray.vbs'
+$script:glowFlag = Join-Path $root 'glow.on'
 
 function Get-ToastAlive {
   $p = Get-Content -LiteralPath $toastPidPath -ErrorAction SilentlyContinue | Select-Object -First 1
@@ -287,6 +306,17 @@ function Update-Pills {
     $autoState.Text = 'выкл'
     $autoState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(255,122,107))
     $autoDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(255,122,107))
+  }
+
+  $glow = Test-Path -LiteralPath $script:glowFlag
+  if ($glow) {
+    $glowState.Text = 'вкл — в цвет обложки'
+    $glowState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
+    $glowDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(89,242,143))
+  } else {
+    $glowState.Text = 'выкл'
+    $glowState.Foreground = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(135,122,154))
+    $glowDot.Background = New-Object Windows.Media.SolidColorBrush ([Windows.Media.Color]::FromRgb(58,49,72))
   }
 }
 
@@ -457,6 +487,17 @@ $pillAuto.Add_MouseLeftButtonUp({
     Update-Pills
   })
 
+$pillGlow.Add_MouseLeftButtonUp({
+    if (Test-Path -LiteralPath $script:glowFlag) {
+      Remove-Item -LiteralPath $script:glowFlag -Force -ErrorAction SilentlyContinue
+    } else {
+      Start-Toast
+      Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII
+    }
+    Start-Sleep -Milliseconds 400
+    Update-Pills
+  })
+
 # ---------------------------------------------------------------- показ/скрытие
 function Show-Panel {
   Update-Info
@@ -507,6 +548,13 @@ $miToast = $menu.Items.Add('Плашка вкл/выкл')
 $miToast.Add_Click({ if (Get-ToastAlive) { Stop-Toast } else { Start-Toast }; Start-Sleep -Milliseconds 300; Update-Pills })
 $miAuto = $menu.Items.Add('Автозапуск вкл/выкл')
 $miAuto.Add_Click({ Set-Autostart (-not (Test-Path -LiteralPath $script:startupLnk)); Update-Pills })
+$miGlow = $menu.Items.Add('Подсветка краёв вкл/выкл')
+$miGlow.Add_Click({
+    if (Test-Path -LiteralPath $script:glowFlag) { Remove-Item -LiteralPath $script:glowFlag -Force -ErrorAction SilentlyContinue }
+    else { Start-Toast; Set-Content -LiteralPath $script:glowFlag -Value '1' -Encoding ASCII }
+    Start-Sleep -Milliseconds 300
+    Update-Pills
+  })
 [void]$menu.Items.Add('-')
 $miExit = $menu.Items.Add('Выход')
 $miExit.Add_Click({
