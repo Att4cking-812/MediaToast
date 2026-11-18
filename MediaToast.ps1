@@ -386,7 +386,7 @@ function Show-Glow {
   for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
     $w = $script:glowWindows[$i]
     $w.Visibility = 'Visible'
-    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.07, 0.22, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
+    $anim = New-Object Windows.Media.Animation.DoubleAnimation(0.09, 0.27, [Windows.Duration]([TimeSpan]::FromMilliseconds(2800)))
     $anim.AutoReverse = $true
     $anim.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
     $anim.BeginTime = [TimeSpan]::FromMilliseconds($delays[$i])
