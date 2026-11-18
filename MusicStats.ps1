@@ -86,12 +86,15 @@ function HtmlEnc([string]$s) {
 }
 
 $bars = ''
+$barIndex = 0
 foreach ($c in $chart) {
   $h = if ($maxDay -gt 0) { [int][Math]::Round(($c.Value / $maxDay) * 132) } else { 0 }
   if ($c.Value -gt 0 -and $h -lt 4) { $h = 4 }
   $label = $c.Date.ToString('dd.MM')
   $tip = $label + ': ' + (Format-Duration $c.Value)
-  $bars += ('<div class="bar-wrap" title="' + $tip + '"><div class="bar" style="height:' + $h + 'px"></div><span>' + $c.Date.ToString('dd') + '</span></div>')
+  $delay = ($barIndex * 0.035)
+  $bars += ('<div class="bar-wrap" title="' + $tip + '"><div class="bar" style="height:' + $h + 'px;animation-delay:' + $delay.ToString('0.00', [Globalization.CultureInfo]::InvariantCulture) + 's"></div><span>' + $c.Date.ToString('dd') + '</span></div>')
+  $barIndex++
 }
 
 $artistRows = ''
@@ -136,7 +139,12 @@ $html = @"
   h2{font-size:12px;letter-spacing:1.4px;text-transform:uppercase;color:var(--gold);margin:0 0 12px}
   .chart{display:flex;align-items:flex-end;gap:8px;height:170px;padding-top:8px}
   .bar-wrap{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;gap:6px}
-  .bar{width:100%;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,var(--cyan),rgba(111,216,255,.15));box-shadow:0 0 14px rgba(111,216,255,.25)}
+  .bar{width:100%;border-radius:6px 6px 2px 2px;background:linear-gradient(180deg,var(--cyan),rgba(111,216,255,.15));box-shadow:0 0 14px rgba(111,216,255,.25);transform-origin:bottom;animation:grow .75s cubic-bezier(.2,.7,.3,1) both}
+  @keyframes grow{from{transform:scaleY(.03);opacity:.4}to{transform:scaleY(1);opacity:1}}
+  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  header,.card{animation:fadeUp .55s ease both}
+  .cards .card:nth-child(2){animation-delay:.08s}
+  .cards .card:nth-child(3){animation-delay:.16s}
   .bar-wrap span{font-size:10px;color:#6f6382}
   .row{display:flex;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px dashed var(--line);font-size:14px}
   .row:last-child{border-bottom:0}
