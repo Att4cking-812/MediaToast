@@ -65,6 +65,8 @@ namespace BrickyardAudio {
             return false;
         }
 
+        public static float DevicePeak() { return Endpoint.GetPeak(); }
+
         public static float GetMusicPeak() {
             float best = 0f;
             bool foundApp = false;
