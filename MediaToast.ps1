@@ -633,7 +633,7 @@ function New-GlowFill([string]$side, $color, [string]$kind) {
   return $brush
 }
 
-function New-GlowWindow([string]$corner) {
+function New-GlowWindow([string]$side) {
   $w = New-Object Windows.Window
   $w.WindowStyle = 'None'
   $w.AllowsTransparency = $true
@@ -648,118 +648,55 @@ function New-GlowWindow([string]$corner) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $size = 560
+  $thick = 130
+  $segments = 8
 
-  switch ($corner) {
-    'tl' { $w.Left = 0; $w.Top = 0 }
-    'tr' { $w.Left = $sw - $size; $w.Top = 0 }
-    'bl' { $w.Left = 0; $w.Top = $sh - $size }
-    'br' { $w.Left = $sw - $size; $w.Top = $sh - $size }
+  switch ($side) {
+    'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
+    'bottom' { $w.Left = 0; $w.Top = $sh - $thick; $w.Width = $sw; $w.Height = $thick }
+    'left'   { $w.Left = 0; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
+    'right'  { $w.Left = $sw - $thick; $w.Top = 0; $w.Width = $thick; $w.Height = $sh }
   }
-  $w.Width = $size
-  $w.Height = $size
 
-  $canvas = New-Object Windows.Controls.Canvas
-  $canvas.ClipToBounds = $false
-  $w.Content = $canvas
-  $shapes = @()
+  $grid = New-Object Windows.Controls.Grid
+  $horizontal = ($side -eq 'top' -or $side -eq 'bottom')
+  $sectors = @()
 
-  # основа: «язык» из угла с волнистым краем
-  $geo = New-Object Windows.Media.StreamGeometry
-  $ctx = $geo.Open()
-  $r = [double]$size
-  switch ($corner) {
-    'tl' {
-      $ctx.BeginFigure((New-Object Windows.Point(0, 0)), $true, $true)
-      $ctx.LineTo((New-Object Windows.Point($r, 0)), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.55), ($r * 0.10))), (New-Object Windows.Point(($r * 0.62), ($r * 0.30))), (New-Object Windows.Point(($r * 0.40), ($r * 0.40))), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.22), ($r * 0.50))), (New-Object Windows.Point(($r * 0.12), ($r * 0.30))), (New-Object Windows.Point(0, ($r * 0.62))), $true, $false)
+  for ($i = 0; $i -lt $segments; $i++) {
+    $b = New-Object Windows.Controls.Border
+    $brush = New-Object Windows.Media.LinearGradientBrush
+    switch ($side) {
+      'top'    { $brush.StartPoint = New-Object Windows.Point(0.5, 0.0); $brush.EndPoint = New-Object Windows.Point(0.5, 1.0) }
+      'bottom' { $brush.StartPoint = New-Object Windows.Point(0.5, 1.0); $brush.EndPoint = New-Object Windows.Point(0.5, 0.0) }
+      'left'   { $brush.StartPoint = New-Object Windows.Point(0.0, 0.5); $brush.EndPoint = New-Object Windows.Point(1.0, 0.5) }
+      'right'  { $brush.StartPoint = New-Object Windows.Point(1.0, 0.5); $brush.EndPoint = New-Object Windows.Point(0.0, 0.5) }
     }
-    'tr' {
-      $ctx.BeginFigure((New-Object Windows.Point($r, 0)), $true, $true)
-      $ctx.LineTo((New-Object Windows.Point(0, 0)), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.45), ($r * 0.10))), (New-Object Windows.Point(($r * 0.38), ($r * 0.30))), (New-Object Windows.Point(($r * 0.60), ($r * 0.40))), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.78), ($r * 0.50))), (New-Object Windows.Point(($r * 0.88), ($r * 0.30))), (New-Object Windows.Point($r, ($r * 0.62))), $true, $false)
-    }
-    'bl' {
-      $ctx.BeginFigure((New-Object Windows.Point(0, $r)), $true, $true)
-      $ctx.LineTo((New-Object Windows.Point(0, 0)), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.10), ($r * 0.45))), (New-Object Windows.Point(($r * 0.30), ($r * 0.38))), (New-Object Windows.Point(($r * 0.40), ($r * 0.60))), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.50), ($r * 0.78))), (New-Object Windows.Point(($r * 0.30), ($r * 0.88))), (New-Object Windows.Point(($r * 0.62), $r)), $true, $false)
-    }
-    'br' {
-      $ctx.BeginFigure((New-Object Windows.Point($r, $r)), $true, $true)
-      $ctx.LineTo((New-Object Windows.Point(0, $r)), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.45), ($r * 0.90))), (New-Object Windows.Point(($r * 0.38), ($r * 0.70))), (New-Object Windows.Point(($r * 0.60), ($r * 0.60))), $true, $false)
-      $ctx.BezierTo((New-Object Windows.Point(($r * 0.78), ($r * 0.50))), (New-Object Windows.Point(($r * 0.88), ($r * 0.70))), (New-Object Windows.Point($r, ($r * 0.38))), $true, $false)
-    }
-  }
-  $ctx.Close()
-  $geo.Freeze()
-
-  $pathShape = New-Object Windows.Shapes.Path
-  $pathShape.Data = $geo
-  $grad = New-Object Windows.Media.RadialGradientBrush
-  switch ($corner) {
-    'tl' { $grad.Center = New-Object Windows.Point(0, 0); $grad.GradientOrigin = New-Object Windows.Point(0, 0) }
-    'tr' { $grad.Center = New-Object Windows.Point(1, 0); $grad.GradientOrigin = New-Object Windows.Point(1, 0) }
-    'bl' { $grad.Center = New-Object Windows.Point(0, 1); $grad.GradientOrigin = New-Object Windows.Point(0, 1) }
-    'br' { $grad.Center = New-Object Windows.Point(1, 1); $grad.GradientOrigin = New-Object Windows.Point(1, 1) }
-  }
-  $c = $script:glowColor
-  $grad.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(235, $c.R, $c.G, $c.B), 0.0)))
-  $grad.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(120, $c.R, $c.G, $c.B), 0.45)))
-  $grad.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B), 1.0)))
-  $pathShape.Fill = $grad
-  [void]$canvas.Children.Add($pathShape)
-  $shapes += $pathShape
-
-  # языки-отростки вдоль краёв
-  $tongues = @(
-    @{ x = 0.30; y = 0.055; w = 0.55; h = 0.11; rot = -6 },
-    @{ x = 0.055; y = 0.30; w = 0.11; h = 0.55; rot = 4 },
-    @{ x = 0.16; y = 0.08; w = 0.34; h = 0.09; rot = -14 }
-  )
-  foreach ($t in $tongues) {
-    $el = New-Object Windows.Shapes.Ellipse
-    $el.Width = $r * $t.w
-    $el.Height = $r * $t.h
-    $brush = New-Object Windows.Media.RadialGradientBrush
-    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(220, $c.R, $c.G, $c.B), 0.0)))
+    $c = $script:glowColor
+    $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(215, $c.R, $c.G, $c.B), 0.0)))
     $brush.GradientStops.Add((New-Object Windows.Media.GradientStop([Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B), 1.0)))
-    $el.Fill = $brush
-    $px = $r * $t.x
-    $py = $r * $t.y
-    if ($corner -eq 'tr' -or $corner -eq 'br') { $px = $r - $px - $el.Width }
-    if ($corner -eq 'bl' -or $corner -eq 'br') { $py = $r - $py - $el.Height }
-    [Windows.Controls.Canvas]::SetLeft($el, $px)
-    [Windows.Controls.Canvas]::SetTop($el, $py)
+    $b.Background = $brush
+    $b.RenderTransformOrigin = New-Object Windows.Point(0.5, 0.5)
+    $tf = New-Object Windows.Media.ScaleTransform
+    $tf.ScaleX = 1.0
+    $tf.ScaleY = 1.0
+    $b.RenderTransform = $tf
 
-    $tf = New-Object Windows.Media.TransformGroup
-    $rot = New-Object Windows.Media.RotateTransform
-    $rot.Angle = $t.rot
-    $rot.CenterX = $el.Width / 2
-    $rot.CenterY = $el.Height / 2
-    $tf.Children.Add($rot)
-    $tr = New-Object Windows.Media.TranslateTransform
-    $tf.Children.Add($tr)
-    $el.RenderTransform = $tf
-    $el.Opacity = 0.55
-
-    $drift = New-Object Windows.Media.Animation.DoubleAnimation(0.0, [double](Get-Random -Minimum 10 -Maximum 40), [Windows.Duration]([TimeSpan]::FromSeconds((Get-Random -Minimum 5 -Maximum 11))))
-    $drift.AutoReverse = $true
-    $drift.RepeatBehavior = [Windows.Media.Animation.RepeatBehavior]::Forever
-    $drift.EasingFunction = $easeOut
-    $tr.BeginAnimation([Windows.Media.TranslateTransform]::YProperty, $drift)
-
-    [void]$canvas.Children.Add($el)
-    $shapes += $el
+    if ($horizontal) {
+      [void]$grid.ColumnDefinitions.Add((New-Object Windows.Controls.ColumnDefinition))
+      [Windows.Controls.Grid]::SetColumn($b, $i)
+    } else {
+      [void]$grid.RowDefinitions.Add((New-Object Windows.Controls.RowDefinition))
+      [Windows.Controls.Grid]::SetRow($b, $i)
+    }
+    [void]$grid.Children.Add($b)
+    $sectors += [pscustomobject]@{ Border = $b; Transform = $tf; Index = $i }
   }
 
+  $w.Content = $grid
   $w.Show()
   Set-ClickThrough $w
   $w.Visibility = 'Hidden'
-  $script:glowParts += [pscustomobject]@{ Side = $corner; Shapes = $shapes }
+  $script:glowParts += [pscustomobject]@{ Side = $side; Sectors = $sectors }
   return $w
 }
 function Update-GlowColor($color) {
@@ -773,20 +710,11 @@ function Update-GlowColor($color) {
 
   foreach ($p in $script:glowParts) {
     try {
-      $i = 0
-      foreach ($shape in $p.Shapes) {
-        $c = if (($i % 2) -eq 0) { $color } else { $sec }
-        $brush = $shape.Fill
-        if ($brush -and $brush.GradientStops -and $brush.GradientStops.Count -ge 2) {
-          $brush.GradientStops[0].Color = [Windows.Media.Color]::FromArgb(235, $c.R, $c.G, $c.B)
-          if ($brush.GradientStops.Count -ge 3) {
-            $brush.GradientStops[1].Color = [Windows.Media.Color]::FromArgb(120, $c.R, $c.G, $c.B)
-            $brush.GradientStops[2].Color = [Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B)
-          } else {
-            $brush.GradientStops[1].Color = [Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B)
-          }
-        }
-        $i++
+      foreach ($s in $p.Sectors) {
+        $c = if (($s.Index % 2) -eq 0) { $color } else { $sec }
+        $brush = $s.Border.Background
+        $brush.GradientStops[0].Color = [Windows.Media.Color]::FromArgb(215, $c.R, $c.G, $c.B)
+        $brush.GradientStops[1].Color = [Windows.Media.Color]::FromArgb(0, $c.R, $c.G, $c.B)
       }
     } catch { }
   }
@@ -794,14 +722,32 @@ function Update-GlowColor($color) {
 function Flash-Glow {
   foreach ($p in $script:glowParts) {
     try {
-      $p.Flash.Opacity = 0.42
-      $a = New-Object Windows.Media.Animation.DoubleAnimation(0.42, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(300)))
-      $a.EasingFunction = $easeOut
-      $p.Flash.BeginAnimation([Windows.UIElement]::OpacityProperty, $a)
+      $horizontal = ($p.Side -eq 'top' -or $p.Side -eq 'bottom')
+      foreach ($s in $p.Sectors) {
+        $delay = $s.Index * 18
+        $dur = [Windows.Duration]([TimeSpan]::FromMilliseconds(110))
+        $grow = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 1.55, $dur)
+        $grow.AutoReverse = $true
+        $grow.BeginTime = [TimeSpan]::FromMilliseconds($delay)
+        $grow.EasingFunction = $easeOut
+
+        if ($horizontal) {
+          $s.Transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $grow)
+          $wide = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 1.18, $dur)
+          $wide.AutoReverse = $true
+          $wide.BeginTime = [TimeSpan]::FromMilliseconds($delay)
+          $s.Transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $wide)
+        } else {
+          $s.Transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleXProperty, $grow)
+          $wide = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 1.18, $dur)
+          $wide.AutoReverse = $true
+          $wide.BeginTime = [TimeSpan]::FromMilliseconds($delay)
+          $s.Transform.BeginAnimation([Windows.Media.ScaleTransform]::ScaleYProperty, $wide)
+        }
+      }
     } catch { }
   }
 }
-
 function Start-GlowBreathing {
   $script:breathT = 0.0
   $script:glowLevel = 0.0
@@ -852,7 +798,7 @@ $script:lastLevel = 0.0
           $nowT = [DateTime]::UtcNow
           $sinceHit = ($nowT - $script:lastHit).TotalMilliseconds
 
-          if (($raw -gt ($script:lvlSlow * 1.18 + 0.02)) -and ($raw -gt 0.15) -and ($sinceHit -gt 120)) {
+          if (($raw -gt ($script:lvlSlow * 1.18 + 0.02)) -and ($raw -gt 0.15) -and ($sinceHit -gt 60)) {
             $script:jolt = 1.0
             $script:lastHit = $nowT
             Flash-Glow
@@ -886,7 +832,7 @@ $script:lastLevel = 0.0
 
 function Show-Glow {
   if ($script:glowShown) { return }
-  $sides = @('tl', 'tr', 'bl', 'br')
+  $sides = @('top', 'bottom', 'left', 'right')
   if ($script:glowWindows.Count -eq 0) {
     foreach ($s in $sides) { $script:glowWindows += (New-GlowWindow $s) }
   }
