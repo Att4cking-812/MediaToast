@@ -1,0 +1,28 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net9.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <AssemblyName>MediaToast</AssemblyName>
+    <RootNamespace>MediaToast</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\App.ico</ApplicationIcon>
+    <Version>3.0.0</Version>
+    <FileVersion>3.0.0.0</FileVersion>
+    <Product>MediaToast</Product>
+    <Company>Att4cking-812</Company>
+    <AssemblyTitle>MediaToast</AssemblyTitle>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\App.ico" />
+    <EmbeddedResource Include="Assets\toast.xaml" />
+    <EmbeddedResource Include="Assets\tray.xaml" />
+    <EmbeddedResource Include="Assets\web.html" />
+  </ItemGroup>
+
+</Project>
