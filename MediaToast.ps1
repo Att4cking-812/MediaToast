@@ -543,6 +543,7 @@ $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
 $script:lastHit = [DateTime]::MinValue
+$script:dbgAt = [DateTime]::MinValue
 $script:lastLevel = 0.0
 $script:energyAvg = 0.0
 $script:breathTimer = $null
@@ -725,6 +726,7 @@ $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
 $script:lastHit = [DateTime]::MinValue
+$script:dbgAt = [DateTime]::MinValue
 $script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
@@ -762,7 +764,7 @@ $script:lastLevel = 0.0
           try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
           $sens = 0.12
           if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
-          $raw = [Math]::Pow([Math]::Min(1.0, $peak / $sens), 0.7)
+          $raw = [Math]::Pow([Math]::Min(1.0, $peak / 0.45), 0.7)
           $script:lvlSlow = ($script:lvlSlow * 0.93) + ($raw * 0.07)
           $nowT = [DateTime]::UtcNow
           $sinceHit = ($nowT - $script:lastHit).TotalMilliseconds
@@ -793,7 +795,7 @@ $script:lastLevel = 0.0
             if ($op -gt 1.0) { $op = 1.0 }
             $script:glowWindows[$i].Opacity = $op
           }
-        } catch { }
+        } catch { Write-Log ("breath: " + $_.Exception.Message) }
       })
   }
   $script:breathTimer.Start()
