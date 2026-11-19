@@ -51,6 +51,9 @@ try { $script:manager = Await ($wtManager::RequestAsync()) $wtManager } catch { 
 $script:artKey = ''
 $script:artBytes = $null
 $script:session = $null
+$script:posKey = ''
+$script:posVal = 0.0
+$script:posAt = [DateTimeOffset]::UtcNow
 
 function Get-Session {
   if (-not $script:manager) {
@@ -97,6 +100,25 @@ function Get-NowState {
     $res.position = [int][Math]::Floor($el.TotalSeconds)
     $res.duration = [int][Math]::Floor([Math]::Max(0, $total.TotalSeconds))
   } catch { }
+
+  # монотонная позиция: плеер иногда отдаёт 0, не даём прогрессу сбрасываться
+  try {
+    $now2 = [DateTimeOffset]::UtcNow
+    if ([string]$res.key -ne $script:posKey) {
+      $script:posKey = [string]$res.key
+      $script:posVal = [double]$res.position
+      $script:posAt = $now2
+    } else {
+      $elapsed = ($now2 - $script:posAt).TotalSeconds
+      $cand = $script:posVal + [Math]::Max(0.0, $elapsed)
+      if ($res.position -ge ($cand - 2)) { $script:posVal = [double]$res.position }
+      else { $script:posVal = $cand }
+      $script:posAt = $now2
+      if ($res.duration -gt 0 -and $script:posVal -gt $res.duration) { $script:posVal = $res.duration }
+      $res.position = [int][Math]::Floor($script:posVal)
+    }
+  } catch { }
+
   return $res
 }
 
