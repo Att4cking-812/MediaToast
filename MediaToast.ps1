@@ -360,13 +360,19 @@ function Update-CardBackdrop($bitmap) {
   try {
     if (-not $cardBackdrop) { return }
     if (-not $bitmap) { $cardBackdrop.Opacity = 0; return }
-    $scale = New-Object Windows.Media.ScaleTransform(0.28, 0.28)
-    $small = New-Object Windows.Media.Imaging.TransformedBitmap($bitmap, $scale)
-    $small.Freeze()
-    $brush = New-Object Windows.Media.ImageBrush($small)
+    $brush = New-Object Windows.Media.ImageBrush($bitmap)
     $brush.Stretch = [Windows.Media.Stretch]::UniformToFill
     $cardBackdrop.Background = $brush
-    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.50, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
+
+    # мягкое размытие вместо растягивания мелкой картинки
+    if (-not $cardBackdrop.Effect) {
+      $blur = New-Object Windows.Media.Effects.BlurEffect
+      $blur.Radius = 18
+      $blur.KernelType = [Windows.Media.Effects.KernelType]::Gaussian
+      $cardBackdrop.Effect = $blur
+    }
+
+    $fade = New-Object Windows.Media.Animation.DoubleAnimation(0.0, 0.55, [Windows.Duration]([TimeSpan]::FromMilliseconds(520)))
     $cardBackdrop.BeginAnimation([Windows.UIElement]::OpacityProperty, $fade)
   } catch { }
 }
@@ -533,6 +539,8 @@ $script:vinylSpinning = $false
 $script:vinylSpin = $null
 $script:glowAudio = $false
 $script:glowLevel = 0.0
+$script:jolt = 0.0
+$script:lastLevel = 0.0
 $script:energyAvg = 0.0
 $script:breathTimer = $null
 $script:breathT = 0.0
@@ -640,8 +648,8 @@ function New-GlowWindow([string]$side) {
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
 
-  $softT = 96
-  $coreT = 26
+  $softT = 84
+  $coreT = 16
   switch ($side) {
     'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
     'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
@@ -654,7 +662,7 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 96
+  $thick = 84
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
@@ -694,6 +702,8 @@ function Update-GlowColor($color) {
 function Start-GlowBreathing {
   $script:breathT = 0.0
   $script:glowLevel = 0.0
+$script:jolt = 0.0
+$script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
     $script:breathTimer.Interval = [TimeSpan]::FromMilliseconds(40)
@@ -724,16 +734,22 @@ function Start-GlowBreathing {
           }
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
+
+          # рывок на резких всплесках (битах)
+          $lvl = $script:glowLevel
+          if (($lvl - $script:lastLevel) -gt 0.16 -and $lvl -gt 0.35) { $script:jolt = 1.0 }
+          $script:lastLevel = $lvl
+          $script:jolt = $script:jolt * 0.78
+
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
             if ($paused) { $op = 0.0 }
             else {
-              # окно почти непрозрачное: яркостью управляют сами пятна
               $phase = $script:breathT + $offsets[$i]
               $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
-              $op = 0.12 + (0.42 * $breath) + ($script:glowLevel * 0.35)
+              $op = 0.10 + (0.36 * $breath) + ($lvl * 0.22) + ($script:jolt * 0.55)
             }
             if ($op -lt 0.01) { $op = 0.0 }
-            if ($op -gt 0.95) { $op = 0.95 }
+            if ($op -gt 1.0) { $op = 1.0 }
             $script:glowWindows[$i].Opacity = $op
           }
         } catch { }
@@ -867,11 +883,26 @@ $script:lastKey = ''
 $script:lastStatus = ''
 $script:lastVolume = -1
 $script:lastMute = $false
+$script:shownKey = ''
+$script:shownAt = [DateTime]::MinValue
 $script:lastShownKey = ''
+$script:shownKey = ''
+$script:shownAt = [DateTime]::MinValue
 $script:lastShownKey = ''
 $script:lastShownTime = [DateTime]::MinValue
 $script:lastShownAt = [DateTime]::MinValue
 $script:lastBeat = [DateTime]::MinValue
+
+function Test-ShouldShow($track) {
+  $dk = (([string]$track.Title).ToLower() + '|' + ([string]$track.Artist).ToLower())
+  $now = (Get-Date).ToUniversalTime()
+  if ($dk -ne $script:shownKey -or ($now - $script:shownAt).TotalMinutes -gt 10) {
+    $script:shownKey = $dk
+    $script:shownAt = $now
+    return $true
+  }
+  return $false
+}
 
 function Get-DisplayTrack {
   if ($script:lastTrack -and $script:lastTrack.Title) { return $script:lastTrack }
@@ -1259,7 +1290,10 @@ $mediaTimer.Add_Tick({
 
         if ($track.Key -ne $script:lastKey) {
           $script:lastKey = $track.Key
-          if ($window.Visibility -ne 'Visible' -or $script:volumeMode) { Show-Toast 'track' }
+          $shouldShow = Test-ShouldShow $track
+          if (-not $shouldShow) {
+            # тот же трек пошёл по кругу — молчим
+          } elseif ($window.Visibility -ne 'Visible' -or $script:volumeMode) { Show-Toast 'track' }
           else {
             # карточка уже на экране — кроссфейд текста и обновление прогресса
             Fade-Art $track.Art
@@ -1269,7 +1303,7 @@ $mediaTimer.Add_Tick({
             $holdTimer.Interval = [TimeSpan]::FromMilliseconds(5600)
             $holdTimer.Start()
           }
-        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and ($track.Key -ne $script:lastShownKey -or ((Get-Date).ToUniversalTime() - $script:lastShownTime).TotalMinutes -gt 10)) {
+        } elseif ($isPlaying -and $script:lastStatus -ne 'Playing' -and (Test-ShouldShow $track)) {
           Show-Toast 'track'
         } elseif (-not $isPlaying -and $track.Status -eq 'Paused' -and $script:lastStatus -eq 'Playing') {
           Show-Toast 'pause'
