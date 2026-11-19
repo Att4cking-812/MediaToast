@@ -184,12 +184,12 @@ namespace BrickyardBass {
 
         public static List<string> GetAvailableSources() {
             var result = new List<string> { "system" };
-            var hints = new string[] { "яндекс", "yandex", "spotify", "aimp", "vlc", "foobar", "musicbee", "itunes", "winamp" };
+            var hints = new string[] { "яндекс", "yandex", "spotify", "aimp", "vlc", "foobar", "musicbee", "itunes", "winamp", "firefox", "chrome", "msedge", "brave", "opera", "vivaldi", "youtube", "browser" };
             foreach (var p in Process.GetProcesses()) {
                 try {
                     var n = p.ProcessName;
                     var low = n.ToLowerInvariant();
-                    if (low.Contains("rpc") || low.Contains("helper") || low.Contains("service")) continue;
+                    if (low.Contains("rpc") || low.Contains("helper") || low.Contains("service") || low.Contains("webview") || low.Contains("crashpad")) continue;
                     bool match = false;
                     for (int i = 0; i < hints.Length; i++) {
                         if (low.Contains(hints[i])) { match = true; break; }

@@ -368,9 +368,26 @@ public sealed class TrayApp
     {
         if (string.IsNullOrEmpty(source) || source == "system") return "система";
         var active = BrickyardBass.BassMeter.ActiveSource;
-        if (active == source) return source;
-        if (active == "system") return source + " → система";
-        return source + " (нет)";
+        var name = SourceDisplayName(source);
+        if (active == source) return name;
+        if (active == "system") return name + " → система";
+        return name + " (нет)";
+    }
+
+    private static string SourceDisplayName(string source)
+    {
+        switch ((source ?? "").ToLowerInvariant())
+        {
+            case "firefox": return "Firefox (браузер)";
+            case "chrome": return "Chrome (браузер)";
+            case "msedge": return "Edge (браузер)";
+            case "brave": return "Brave (браузер)";
+            case "opera": return "Opera (браузер)";
+            case "vivaldi": return "Vivaldi (браузер)";
+            case "youtube": return "YouTube";
+            case "browser": return "Браузер";
+            default: return source;
+        }
     }
 
     private static void SetState(TextBlock text, Border dot, bool on, string label)
