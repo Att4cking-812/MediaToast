@@ -19,6 +19,7 @@ public sealed class Settings
     public string GlowPreset { get; set; } = "neon-universal";
     public string CardTheme { get; set; } = "neon";
     public string GlowStyle { get; set; } = "sectors";
+    public string GlowSource { get; set; } = "system";
     public bool GlowOn { get; set; } = true;
     public bool ToastOn { get; set; } = true;
     public bool VinylOn { get; set; } = false;

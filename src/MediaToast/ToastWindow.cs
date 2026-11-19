@@ -3,6 +3,7 @@ using Point = System.Windows.Point;
 using Size = System.Windows.Size;
 using Brush = System.Windows.Media.Brush;
 using Brushes = System.Windows.Media.Brushes;
+using Path = System.Windows.Shapes.Path;
 using System;
 using System.Windows;
 using System.Windows.Controls;

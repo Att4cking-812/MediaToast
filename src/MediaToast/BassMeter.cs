@@ -1,15 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
 
 namespace BrickyardBass {
-    // Захват системного звука (WASAPI loopback) и выделение баса.
-    // Даёт живой уровень и точные удары даже там, где микшерный метр «замерзает».
+    // Захват звука: весь системный микс (loopback) или отдельное приложение
+    // через Windows process loopback. Выделяет бас и считает удары.
     public static class BassMeter {
         private const int AUDCLNT_STREAMFLAGS_LOOPBACK = 0x00020000;
+        private const int AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM = unchecked((int)0x80000000);
         private const int AUDCLNT_BUFFERFLAGS_SILENT = 0x00000002;
         private const int CLSCTX_INPROC_SERVER = 1;
+        private const int VT_BLOB = 65;
+        private const string PROCESS_LOOPBACK_DEVICE = "VAD\\Process_Loopback";
 
         [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         internal interface IMMDeviceEnumerator {
@@ -51,34 +55,58 @@ namespace BrickyardBass {
         [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
         internal class MMDeviceEnumeratorComObject { }
 
-        private static Thread worker;
-        private static volatile bool running = false;
-        private static volatile bool ready = false;
-        private static string lastError = "";
-        private static volatile float level = 0f;
-        private static volatile float strengthValue = 0f;
-        private static int beatCount = 0;
-        private static long lastBeatTicks = 0;
-
-        public static bool IsRunning { get { return ready; } }
-        public static string LastError { get { return lastError; } }
-        public static float Level { get { return level; } }
-        public static float LastStrength { get { return strengthValue; } }
-        public static int BeatCount { get { return Interlocked.CompareExchange(ref beatCount, 0, 0); } }
-        public static long LastBeatTicks { get { return Interlocked.Read(ref lastBeatTicks); } }
-
-        public static void Start() {
-            if (running) return;
-            running = true;
-            worker = new Thread(Loop);
-            worker.IsBackground = true;
-            worker.Name = "BassMeter";
-            worker.Start();
+        [ComImport, Guid("41D949AB-9862-444A-80F6-C261334DA5EB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        public interface IActivateAudioInterfaceCompletionHandler {
+            [PreserveSig] int ActivateCompleted(IActivateAudioInterfaceAsyncOperation activateOperation);
         }
 
-        public static void Stop() {
-            running = false;
+        [ComImport, Guid("72A22D78-CDE4-431D-B8CC-843A71199B6D"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
+        public interface IActivateAudioInterfaceAsyncOperation {
+            [PreserveSig] int GetActivateResult(out int activateResult, [MarshalAs(UnmanagedType.IUnknown)] out object activatedInterface);
         }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct BLOB {
+            public int cbSize;
+            public IntPtr pBlobData;
+        }
+
+        [StructLayout(LayoutKind.Explicit)]
+        private struct PROPVARIANT {
+            [FieldOffset(0)] public ushort vt;
+            [FieldOffset(8)] public BLOB blob;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
+            public uint TargetProcessId;
+            public int ProcessLoopbackMode;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct AUDIOCLIENT_ACTIVATION_PARAMS {
+            public int ActivationType;
+            public AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS ProcessLoopbackParams;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct WAVEFORMATEX {
+            public ushort wFormatTag;
+            public ushort nChannels;
+            public uint nSamplesPerSec;
+            public uint nAvgBytesPerSec;
+            public ushort nBlockAlign;
+            public ushort wBitsPerSample;
+            public ushort cbSize;
+        }
+
+        [DllImport("mmdevapi.dll", ExactSpelling = true, PreserveSig = true)]
+        private static extern int ActivateAudioInterfaceAsync(
+            [MarshalAs(UnmanagedType.LPWStr)] string deviceInterfacePath,
+            ref Guid riid,
+            ref PROPVARIANT activationParams,
+            [MarshalAs(UnmanagedType.Interface)] IActivateAudioInterfaceCompletionHandler completionHandler,
+            out IActivateAudioInterfaceAsyncOperation activationOperation);
 
         [DllImport("ole32.dll")]
         private static extern int CoInitializeEx(IntPtr pvReserved, int coInit);
@@ -87,34 +115,153 @@ namespace BrickyardBass {
         [DllImport("ole32.dll")]
         private static extern void CoTaskMemFree(IntPtr pv);
 
-        private static void Loop() {
+        private static readonly object sync = new();
+        private static Thread worker;
+        private static int generation;
+        private static volatile bool ready = false;
+        private static string lastError = "";
+        private static volatile float level = 0f;
+        private static volatile float strengthValue = 0f;
+        private static int beatCount = 0;
+        private static long lastBeatTicks = 0;
+        private static string sourceName = "system";
+        private static string activeSource = "";
+        private static DateTime lastStart = DateTime.MinValue;
+
+        public static bool IsRunning { get { return ready; } }
+        public static string LastError { get { return lastError; } }
+        public static float Level { get { return level; } }
+        public static float LastStrength { get { return strengthValue; } }
+        public static int BeatCount { get { return Interlocked.CompareExchange(ref beatCount, 0, 0); } }
+        public static long LastBeatTicks { get { return Interlocked.Read(ref lastBeatTicks); } }
+        public static string Source { get { return sourceName; } }
+        public static string ActiveSource { get { return activeSource; } }
+
+        public static void Start() {
+            lock (sync) {
+                if (worker != null && worker.IsAlive) return;
+                if ((DateTime.UtcNow - lastStart).TotalSeconds < 3) return;
+                lastStart = DateTime.UtcNow;
+                StartLocked(sourceName);
+            }
+        }
+
+        public static void Stop() {
+            lock (sync) {
+                Interlocked.Increment(ref generation);
+                worker = null;
+            }
+            ready = false;
+        }
+
+        public static void SetSource(string name) {
+            name = string.IsNullOrWhiteSpace(name) ? "system" : name.Trim();
+            lock (sync) {
+                if (name == sourceName && worker != null && worker.IsAlive) return;
+                sourceName = name;
+                Interlocked.Increment(ref generation);
+                var old = worker;
+                worker = null;
+                try { old?.Join(1200); } catch { }
+                lastStart = DateTime.UtcNow;
+                StartLocked(name);
+            }
+        }
+
+        private static void StartLocked(string source) {
+            int gen = Interlocked.Increment(ref generation);
+            ready = false;
+            var t = new Thread(() => Loop(gen, source));
+            t.IsBackground = true;
+            t.Name = "BassMeter";
+            worker = t;
+            t.Start();
+        }
+
+        public static List<string> GetAvailableSources() {
+            var result = new List<string> { "system" };
+            var hints = new string[] { "яндекс", "yandex", "spotify", "aimp", "vlc", "foobar", "musicbee", "itunes", "winamp" };
+            foreach (var p in Process.GetProcesses()) {
+                try {
+                    var n = p.ProcessName;
+                    var low = n.ToLowerInvariant();
+                    if (low.Contains("rpc") || low.Contains("helper") || low.Contains("service")) continue;
+                    bool match = false;
+                    for (int i = 0; i < hints.Length; i++) {
+                        if (low.Contains(hints[i])) { match = true; break; }
+                    }
+                    if (match && !result.Contains(n)) result.Add(n);
+                } catch { }
+            }
+            return result;
+        }
+
+        private static int FindProcessPid(string name) {
+            foreach (var p in Process.GetProcesses()) {
+                try { if (string.Equals(p.ProcessName, name, StringComparison.OrdinalIgnoreCase)) return p.Id; }
+                catch { }
+            }
+            return 0;
+        }
+
+        private static bool IsCurrent(int gen) {
+            return Volatile.Read(ref generation) == gen;
+        }
+
+        private static void Loop(int gen, string requestedSource) {
             IAudioClient client = null;
             IAudioCaptureClient capture = null;
             IntPtr formatPtr = IntPtr.Zero;
+            bool mixFormat = false;
+            int pid = 0;
             try {
                 int hr = CoInitializeEx(IntPtr.Zero, 0);
                 if (hr < 0) { lastError = "CoInitializeEx " + hr; return; }
 
-                var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
-                IMMDevice device;
-                hr = enumerator.GetDefaultAudioEndpoint(0, 1, out device);
-                if (hr < 0 || device == null) { lastError = "no device " + hr; return; }
+                string source = requestedSource;
+                int rate = 0;
+                short channels = 0;
+                short bits = 0;
 
-                Guid iid = typeof(IAudioClient).GUID;
-                object clientObj;
-                hr = device.Activate(ref iid, CLSCTX_INPROC_SERVER, IntPtr.Zero, out clientObj);
-                if (hr < 0 || clientObj == null) { lastError = "activate " + hr; return; }
-                client = (IAudioClient)clientObj;
+                if (source != "system") {
+                    pid = FindProcessPid(source);
+                    if (pid <= 0) {
+                        lastError = "process not found: " + source;
+                        return;
+                    } else if (!TryCreateProcessClient(pid, out client, out formatPtr, out rate, out channels, out bits)) {
+                        source = "system";
+                        client = null;
+                        formatPtr = IntPtr.Zero;
+                    }
+                }
 
-                hr = client.GetMixFormat(out formatPtr);
-                if (hr < 0) { lastError = "mix format " + hr; return; }
+                int flags = AUDCLNT_STREAMFLAGS_LOOPBACK;
+                if (source == "system") {
+                    pid = 0;
+                    var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+                    IMMDevice device;
+                    hr = enumerator.GetDefaultAudioEndpoint(0, 1, out device);
+                    if (hr < 0 || device == null) { lastError = "no device " + hr; return; }
 
-                int rate = Marshal.ReadInt32(formatPtr, 4);
-                short channels = Marshal.ReadInt16(formatPtr, 2);
-                short bits = Marshal.ReadInt16(formatPtr, 14);
-                if (rate <= 0 || channels <= 0) { lastError = "bad format"; return; }
+                    Guid iid = typeof(IAudioClient).GUID;
+                    object clientObj;
+                    hr = device.Activate(ref iid, CLSCTX_INPROC_SERVER, IntPtr.Zero, out clientObj);
+                    if (hr < 0 || clientObj == null) { lastError = "activate " + hr; return; }
+                    client = (IAudioClient)clientObj;
 
-                hr = client.Initialize(0, AUDCLNT_STREAMFLAGS_LOOPBACK, 0, 0, formatPtr, IntPtr.Zero);
+                    hr = client.GetMixFormat(out formatPtr);
+                    if (hr < 0) { lastError = "mix format " + hr; return; }
+                    mixFormat = true;
+
+                    rate = Marshal.ReadInt32(formatPtr, 4);
+                    channels = Marshal.ReadInt16(formatPtr, 2);
+                    bits = Marshal.ReadInt16(formatPtr, 14);
+                    if (rate <= 0 || channels <= 0) { lastError = "bad format"; return; }
+                } else {
+                    flags |= AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM;
+                }
+
+                hr = client.Initialize(0, flags, 0, 0, formatPtr, IntPtr.Zero);
                 if (hr < 0) { lastError = "initialize " + hr; return; }
 
                 Guid capIid = typeof(IAudioCaptureClient).GUID;
@@ -126,6 +273,7 @@ namespace BrickyardBass {
                 hr = client.Start();
                 if (hr < 0) { lastError = "start " + hr; return; }
 
+                activeSource = source;
                 ready = true;
                 lastError = "";
 
@@ -133,43 +281,66 @@ namespace BrickyardBass {
                 float a = (float)Math.Max(0.0001, Math.Min(1.0, alpha));
                 float lp1 = 0f, lp2 = 0f;
                 float env = 0f, slow = 0f;
-                float[] buffer = new float[0];
+                float[] fbuffer = new float[0];
+                short[] sbuffer = new short[0];
                 long prevBeat = 0;
+                DateTime lastPidCheck = DateTime.UtcNow;
 
-                while (running) {
+                while (IsCurrent(gen)) {
+                    if (pid > 0 && (DateTime.UtcNow - lastPidCheck).TotalSeconds > 2) {
+                        lastPidCheck = DateTime.UtcNow;
+                        try { Process.GetProcessById(pid); }
+                        catch { lastError = "source process exited"; break; }
+                    }
+
                     uint packet;
                     if (capture.GetNextPacketSize(out packet) < 0) break;
                     if (packet == 0) { Thread.Sleep(3); continue; }
 
-                    while (packet > 0 && running) {
+                    while (packet > 0 && IsCurrent(gen)) {
                         IntPtr data;
                         uint frames;
-                        uint flags;
+                        uint flagsBuf;
                         long devPos, qpcPos;
-                        if (capture.GetBuffer(out data, out frames, out flags, out devPos, out qpcPos) < 0) break;
+                        if (capture.GetBuffer(out data, out frames, out flagsBuf, out devPos, out qpcPos) < 0) break;
 
                         double sumSq = 0.0;
                         int total = 0;
-                        if (frames > 0 && (flags & AUDCLNT_BUFFERFLAGS_SILENT) == 0 && data != IntPtr.Zero && bits == 32) {
+                        bool silent = (flagsBuf & AUDCLNT_BUFFERFLAGS_SILENT) != 0;
+                        if (frames > 0 && !silent && data != IntPtr.Zero) {
                             int need = (int)frames * channels;
-                            if (buffer.Length < need) buffer = new float[need];
-                            Marshal.Copy(data, buffer, 0, need);
-                            for (int i = 0; i < frames; i++) {
-                                int idx = i * channels;
-                                float mono = 0f;
-                                for (int c = 0; c < channels; c++) mono += buffer[idx + c];
-                                mono /= channels;
-                                lp1 += a * (mono - lp1);
-                                lp2 += a * (lp1 - lp2);
-                                sumSq += lp2 * lp2;
-                                total++;
+                            if (bits == 32) {
+                                if (fbuffer.Length < need) fbuffer = new float[need];
+                                Marshal.Copy(data, fbuffer, 0, need);
+                                for (int i = 0; i < frames; i++) {
+                                    int idx = i * channels;
+                                    float mono = 0f;
+                                    for (int c = 0; c < channels; c++) mono += fbuffer[idx + c];
+                                    mono /= channels;
+                                    lp1 += a * (mono - lp1);
+                                    lp2 += a * (lp1 - lp2);
+                                    sumSq += lp2 * lp2;
+                                    total++;
+                                }
+                            } else if (bits == 16) {
+                                if (sbuffer.Length < need) sbuffer = new short[need];
+                                Marshal.Copy(data, sbuffer, 0, need);
+                                for (int i = 0; i < frames; i++) {
+                                    int idx = i * channels;
+                                    float mono = 0f;
+                                    for (int c = 0; c < channels; c++) mono += sbuffer[idx + c] / 32768f;
+                                    mono /= channels;
+                                    lp1 += a * (mono - lp1);
+                                    lp2 += a * (lp1 - lp2);
+                                    sumSq += lp2 * lp2;
+                                    total++;
+                                }
                             }
                         }
                         capture.ReleaseBuffer(frames);
 
                         float rms = (total > 0) ? (float)Math.Sqrt(sumSq / total) : 0f;
 
-                        // быстрая атака, мягкий спад
                         if (rms > env) env += (rms - env) * 0.85f;
                         else env = env * 0.86f + rms * 0.14f;
                         slow = slow * 0.986f + env * 0.014f;
@@ -200,11 +371,101 @@ namespace BrickyardBass {
                 lastError = ex.Message;
             } finally {
                 try { if (client != null) client.Stop(); } catch { }
-                try { if (formatPtr != IntPtr.Zero) CoTaskMemFree(formatPtr); } catch { }
+                try {
+                    if (formatPtr != IntPtr.Zero) {
+                        if (mixFormat) CoTaskMemFree(formatPtr);
+                        else Marshal.FreeHGlobal(formatPtr);
+                    }
+                } catch { }
                 try { if (capture != null && Marshal.IsComObject(capture)) Marshal.ReleaseComObject(capture); } catch { }
                 try { if (client != null && Marshal.IsComObject(client)) Marshal.ReleaseComObject(client); } catch { }
                 try { CoUninitialize(); } catch { }
-                ready = false;
+                if (IsCurrent(gen)) {
+                    ready = false;
+                    activeSource = "";
+                }
+            }
+        }
+
+        private static bool TryCreateProcessClient(int pid, out IAudioClient client, out IntPtr formatPtr, out int rate, out short channels, out short bits) {
+            client = null;
+            formatPtr = IntPtr.Zero;
+            rate = 44100;
+            channels = 2;
+            bits = 16;
+
+            IntPtr paramsPtr = IntPtr.Zero;
+            try {
+                var p = new AUDIOCLIENT_ACTIVATION_PARAMS {
+                    ActivationType = 1,
+                    ProcessLoopbackParams = new AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
+                        TargetProcessId = (uint)pid,
+                        ProcessLoopbackMode = 0
+                    }
+                };
+                int size = Marshal.SizeOf<AUDIOCLIENT_ACTIVATION_PARAMS>();
+                paramsPtr = Marshal.AllocHGlobal(size);
+                Marshal.StructureToPtr(p, paramsPtr, false);
+
+                var pv = new PROPVARIANT {
+                    vt = VT_BLOB,
+                    blob = new BLOB { cbSize = size, pBlobData = paramsPtr }
+                };
+
+                var handler = new ActivationHandler();
+                Guid iid = typeof(IAudioClient).GUID;
+                IActivateAudioInterfaceAsyncOperation op;
+                int hr = ActivateAudioInterfaceAsync(PROCESS_LOOPBACK_DEVICE, ref iid, ref pv, handler, out op);
+                if (hr < 0) { lastError = "activation call " + hr; return false; }
+                if (!handler.Done.Wait(3000)) { lastError = "activation timeout"; return false; }
+                if (handler.Result < 0 || handler.Client == null) {
+                    lastError = "activation 0x" + handler.Result.ToString("X8");
+                    return false;
+                }
+
+                client = (IAudioClient)handler.Client;
+
+                var fmt = new WAVEFORMATEX {
+                    wFormatTag = 1,
+                    nChannels = 2,
+                    nSamplesPerSec = 44100,
+                    nAvgBytesPerSec = 44100 * 4,
+                    nBlockAlign = 4,
+                    wBitsPerSample = 16,
+                    cbSize = 0
+                };
+                formatPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WAVEFORMATEX>());
+                Marshal.StructureToPtr(fmt, formatPtr, false);
+                return true;
+            } catch (Exception ex) {
+                lastError = "process loopback: " + ex.Message;
+                try { if (formatPtr != IntPtr.Zero) Marshal.FreeHGlobal(formatPtr); } catch { }
+                formatPtr = IntPtr.Zero;
+                client = null;
+                return false;
+            } finally {
+                if (paramsPtr != IntPtr.Zero) {
+                    try { Marshal.FreeHGlobal(paramsPtr); } catch { }
+                }
+            }
+        }
+
+        [ComVisible(true)]
+        public sealed class ActivationHandler : IActivateAudioInterfaceCompletionHandler {
+            public readonly ManualResetEventSlim Done = new ManualResetEventSlim(false);
+            public int Result = -1;
+            public object Client;
+
+            public int ActivateCompleted(IActivateAudioInterfaceAsyncOperation activateOperation) {
+                try {
+                    int hr = activateOperation.GetActivateResult(out int activateResult, out object activated);
+                    Result = hr < 0 ? hr : activateResult;
+                    Client = activated;
+                } catch (Exception ex) {
+                    Result = ex.HResult;
+                }
+                Done.Set();
+                return 0;
             }
         }
     }

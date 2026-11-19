@@ -53,6 +53,7 @@ public sealed class TrayApp
     private readonly Border _pillPreset;
     private readonly Border _pillTheme;
     private readonly Border _pillStyle;
+    private readonly Border _pillSource;
     private readonly TextBlock _toastState;
     private readonly TextBlock _autoState;
     private readonly TextBlock _glowState;
@@ -60,6 +61,7 @@ public sealed class TrayApp
     private readonly TextBlock _presetState;
     private readonly TextBlock _themeState;
     private readonly TextBlock _styleState;
+    private readonly TextBlock _sourceState;
     private readonly Border _toastDot;
     private readonly Border _autoDot;
     private readonly Border _glowDot;
@@ -130,6 +132,8 @@ public sealed class TrayApp
         _glowState = Find<TextBlock>("GlowState");
         _vinylState = Find<TextBlock>("VinylState");
         _presetState = Find<TextBlock>("PresetState");
+        _pillSource = Find<Border>("PillSource");
+        _sourceState = Find<TextBlock>("SourceState");
         _themeState = Find<TextBlock>("ThemeState");
         _styleState = Find<TextBlock>("StyleState");
         _toastDot = Find<Border>("ToastDot");
@@ -163,6 +167,15 @@ public sealed class TrayApp
             _app.SetGlowPreset(order[(i + 1 + order.Length) % order.Length]);
             Refresh();
         };
+        _pillSource.MouseLeftButtonUp += (_, _) =>
+        {
+            var sources = BrickyardBass.BassMeter.GetAvailableSources();
+            var current = _app.Settings.GlowSource ?? "system";
+            var i = sources.IndexOf(current);
+            var next = sources[(i + 1 + sources.Count) % sources.Count];
+            _app.SetGlowSource(next);
+            Refresh();
+        };
         _pillTheme.MouseLeftButtonUp += (_, _) =>
         {
             var order = new[] { "neon", "minimal", "glass" };
@@ -184,7 +197,7 @@ public sealed class TrayApp
         AddHoverTint(_prevBtn, Color.FromRgb(30, 26, 42), Color.FromRgb(42, 35, 64));
         AddHoverTint(_nextBtn, Color.FromRgb(30, 26, 42), Color.FromRgb(42, 35, 64));
         AddHoverTint(_playBtn, Color.FromRgb(35, 30, 49), Color.FromRgb(49, 40, 74));
-        foreach (var pill in new[] { _pillToast, _pillAuto, _pillGlow, _pillStats, _pillWeb, _pillVinyl, _pillPreset, _pillTheme, _pillStyle })
+        foreach (var pill in new[] { _pillToast, _pillAuto, _pillGlow, _pillStats, _pillWeb, _pillVinyl, _pillPreset, _pillSource, _pillTheme, _pillStyle })
         {
             AddHoverTint(pill, Color.FromRgb(23, 19, 34), Color.FromRgb(34, 28, 51));
         }
@@ -346,8 +359,18 @@ public sealed class TrayApp
         SetState(_glowState, _glowDot, s.GlowOn, s.GlowOn ? "вкл — в цвет обложки" : "выкл");
         SetState(_vinylState, _vinylDot, s.VinylOn, s.VinylOn ? "вкл — круг крутится" : "выкл");
         _presetState.Text = PresetName(s.GlowPreset);
+        _sourceState.Text = SourceLabel(s.GlowSource);
         _themeState.Text = ThemeName(s.CardTheme);
         _styleState.Text = StyleName(s.GlowStyle);
+    }
+
+    private static string SourceLabel(string source)
+    {
+        if (string.IsNullOrEmpty(source) || source == "system") return "система";
+        var active = BrickyardBass.BassMeter.ActiveSource;
+        if (active == source) return source;
+        if (active == "system") return source + " → система";
+        return source + " (нет)";
     }
 
     private static void SetState(TextBlock text, Border dot, bool on, string label)

@@ -34,6 +34,7 @@ public sealed class ToastApp
     private bool _lastMute;
     private string _lastVolKey = "";
     private DateTime _lastVolAt = DateTime.MinValue;
+    private DateTime _lastBassCheck = DateTime.MinValue;
 
     public Settings Settings => _settings;
     public TrackInfo Current => _lastTrack ?? _lastGood;
@@ -47,9 +48,9 @@ public sealed class ToastApp
 
         try
         {
-            BrickyardBass.BassMeter.Start();
-            System.Threading.Thread.Sleep(250);
-            Log.Write("bass meter: running=" + BrickyardBass.BassMeter.IsRunning + " error=" + BrickyardBass.BassMeter.LastError);
+            BrickyardBass.BassMeter.SetSource(_settings.GlowSource ?? "system");
+            System.Threading.Thread.Sleep(350);
+            Log.Write("bass meter: source=" + (_settings.GlowSource ?? "system") + " active=" + BrickyardBass.BassMeter.ActiveSource + " running=" + BrickyardBass.BassMeter.IsRunning + " error=" + BrickyardBass.BassMeter.LastError);
         }
         catch (Exception ex)
         {
@@ -180,6 +181,15 @@ public sealed class ToastApp
     {
         try
         {
+            if ((DateTime.UtcNow - _lastBassCheck).TotalSeconds > 5)
+            {
+                _lastBassCheck = DateTime.UtcNow;
+                if (!BrickyardBass.BassMeter.IsRunning)
+                {
+                    BrickyardBass.BassMeter.Start();
+                }
+            }
+
             if (_lastTrack != null && !_toast.VolumeMode && _toast.IsShown && _lastStatus == "Playing")
             {
                 _toast.UpdateProgress(_lastTrack);
@@ -269,6 +279,14 @@ public sealed class ToastApp
         _settings.GlowPreset = preset;
         _settings.Save();
         _glow.ApplySettings(_settings);
+    }
+
+    public void SetGlowSource(string source)
+    {
+        _settings.GlowSource = string.IsNullOrWhiteSpace(source) ? "system" : source.Trim();
+        _settings.Save();
+        BrickyardBass.BassMeter.SetSource(_settings.GlowSource);
+        Log.Write("glow source=" + _settings.GlowSource + " active=" + BrickyardBass.BassMeter.ActiveSource + " error=" + BrickyardBass.BassMeter.LastError);
     }
 
     public bool StartWebServer()

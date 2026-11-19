@@ -234,6 +234,21 @@
         </Grid>
       </Border>
 
+      <Border x:Name="PillSource" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
+              Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
+        <Grid>
+          <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
+          </Grid.ColumnDefinitions>
+          <StackPanel Grid.Column="0">
+            <TextBlock Text="Источник звука" FontFamily="Segoe UI Semibold" FontSize="11.5" Foreground="#E7DFF2"/>
+            <TextBlock x:Name="SourceState" Text="система" FontFamily="Segoe UI" FontSize="10" Foreground="#877A9A" Margin="0,1,0,0"/>
+          </StackPanel>
+          <TextBlock Grid.Column="1" Text="⟳" FontSize="14" Foreground="#6FD8FF" VerticalAlignment="Center" Margin="6,0,0,0"/>
+        </Grid>
+      </Border>
+
       <Border x:Name="PillTheme" CornerRadius="10" Background="#171322" BorderBrush="#26FFFFFF" BorderThickness="1"
               Padding="8,6" Margin="0,8,0,0" Cursor="Hand">
         <Grid>
