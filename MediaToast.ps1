@@ -648,7 +648,7 @@ function New-GlowWindow([string]$side) {
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
-  $thick = 130
+  $thick = 72
   $segments = 8
 
   switch ($side) {
@@ -724,9 +724,9 @@ function Flash-Glow {
     try {
       $horizontal = ($p.Side -eq 'top' -or $p.Side -eq 'bottom')
       foreach ($s in $p.Sectors) {
-        $delay = $s.Index * 18
-        $dur = [Windows.Duration]([TimeSpan]::FromMilliseconds(110))
-        $grow = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 1.55, $dur)
+        $delay = $s.Index * 8
+        $dur = [Windows.Duration]([TimeSpan]::FromMilliseconds(90))
+        $grow = New-Object Windows.Media.Animation.DoubleAnimation(1.0, 1.38, $dur)
         $grow.AutoReverse = $true
         $grow.BeginTime = [TimeSpan]::FromMilliseconds($delay)
         $grow.EasingFunction = $easeOut
