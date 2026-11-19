@@ -832,7 +832,9 @@ $script:lastLevel = 0.0
             # запасной вариант: пик устройства
             $peak = 0.0
             try { $peak = [double][BrickyardAudio.AppMeter]::DevicePeak() } catch { }
-            $raw = [Math]::Pow([Math]::Min(1.0, $peak / 0.45), 0.7)
+            $sens = 0.12
+            if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
+            $raw = [Math]::Pow([Math]::Min(1.0, $peak / (0.45 * ($sens / 0.12))), 0.7)
             $script:lvlSlow = ($script:lvlSlow * 0.93) + ($raw * 0.07)
             $nowT = [DateTime]::UtcNow
             $delta = $raw - $script:prevRaw
