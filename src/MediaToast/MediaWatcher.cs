@@ -104,14 +104,70 @@ public sealed class MediaWatcher
         }
     }
 
+    private static readonly string[] BlockedApps =
+    {
+        "riot", "valorant", "steam", "epicgames", "epic games", "battle.net", "battlenet",
+        "ea app", "origin", "uplay", "ubisoft", "gog galaxy", "xbox", "gamebar", "game bar"
+    };
+
+    private static bool IsBlockedApp(string value)
+    {
+        if (string.IsNullOrEmpty(value)) return false;
+        var low = value.ToLowerInvariant();
+        foreach (var bad in BlockedApps)
+        {
+            if (low.Contains(bad)) return true;
+        }
+        return false;
+    }
+
+    private GlobalSystemMediaTransportControlsSession PickSession()
+    {
+        try
+        {
+            var sessions = _manager.GetSessions();
+            if (sessions != null && sessions.Count > 0)
+            {
+                var current = _manager.GetCurrentSession();
+                var currentId = "";
+                try { currentId = current?.SourceAppUserModelId ?? ""; } catch { }
+
+                GlobalSystemMediaTransportControlsSession best = null;
+                int bestScore = -1;
+                foreach (var s in sessions)
+                {
+                    if (s == null) continue;
+                    string aumid = "";
+                    try { aumid = s.SourceAppUserModelId ?? ""; } catch { }
+                    if (IsBlockedApp(aumid)) continue;
+
+                    int score = 0;
+                    try
+                    {
+                        var info = s.GetPlaybackInfo();
+                        if (info != null && info.PlaybackStatus.ToString() == "Playing") score += 10;
+                    }
+                    catch { }
+                    if (!string.IsNullOrEmpty(currentId) && aumid == currentId) score += 3;
+                    if (score > bestScore) { bestScore = score; best = s; }
+                }
+                return best;
+            }
+        }
+        catch { }
+        return _manager.GetCurrentSession();
+    }
+
     private async Task<TrackInfo> ReadTrackAsync()
     {
-        var session = _manager.GetCurrentSession();
+        var session = PickSession();
         if (session == null) return null;
 
         _session = session;
         var props = await session.TryGetMediaPropertiesAsync();
         if (props == null) return null;
+
+        if (IsBlockedApp(props.Title) || IsBlockedApp(session.SourceAppUserModelId)) return null;
 
         var info = session.GetPlaybackInfo();
         var status = info != null ? info.PlaybackStatus.ToString() : "Closed";

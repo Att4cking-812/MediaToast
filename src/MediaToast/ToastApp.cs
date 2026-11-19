@@ -108,7 +108,8 @@ public sealed class ToastApp
                 {
                     _toast.ShowTrack(track);
                 }
-                else if (!playing && track.Status == "Paused" && _lastStatus == "Playing" && _settings.ToastOn)
+                else if (!playing && track.Status == "Paused" && _lastStatus == "Playing" && _settings.ToastOn
+                         && (track.Art != null || !string.IsNullOrEmpty(track.Artist) || track.Duration.TotalSeconds >= 20))
                 {
                     _toast.ShowTrack(track, pause: true);
                 }
