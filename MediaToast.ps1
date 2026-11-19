@@ -542,6 +542,7 @@ $script:glowLevel = 0.0
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
+$script:lastHit = [DateTime]::MinValue
 $script:lastLevel = 0.0
 $script:energyAvg = 0.0
 $script:breathTimer = $null
@@ -723,6 +724,7 @@ function Start-GlowBreathing {
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
+$script:lastHit = [DateTime]::MinValue
 $script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
@@ -755,21 +757,28 @@ $script:lastLevel = 0.0
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
 
-          # рывок на резких всплесках (битах) — адаптивный порог
-          $lvl = $script:glowLevel
-          $script:lvlSlow = ($script:lvlSlow * 0.96) + ($lvl * 0.04)
-          $hit = $false
-          if (($lvl -gt ($script:lvlSlow * 1.28)) -and ($lvl -gt 0.22)) {
+          # бит-детект по «сырому» пику, не по сглаженному уровню
+          $peak = 0.0
+          try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
+          $sens = 0.12
+          if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
+          $raw = [Math]::Pow([Math]::Min(1.0, $peak / $sens), 0.7)
+          $script:lvlSlow = ($script:lvlSlow * 0.93) + ($raw * 0.07)
+          $nowT = [DateTime]::UtcNow
+          $sinceHit = ($nowT - $script:lastHit).TotalMilliseconds
+
+          if (($raw -gt ($script:lvlSlow * 1.18 + 0.02)) -and ($raw -gt 0.15) -and ($sinceHit -gt 120)) {
             $script:jolt = 1.0
-            $hit = $true
-            if ($lvl -gt ($script:lvlSlow * 1.55)) { $script:doubleTicks = 3 }
+            $script:lastHit = $nowT
+            Flash-Glow
+            if ($raw -gt ($script:lvlSlow * 1.45 + 0.05)) { $script:doubleTicks = 3 }
           }
-          if ($hit) { Flash-Glow }
           if ($script:doubleTicks -gt 0) {
             $script:doubleTicks--
             if ($script:doubleTicks -eq 0) { $script:jolt = 0.85; Flash-Glow }
           }
           $script:jolt = $script:jolt * 0.86
+          $lvl = $script:glowLevel
           $script:lastLevel = $lvl
 
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
