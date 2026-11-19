@@ -16,7 +16,7 @@ public sealed class Settings
     public double CardWidth { get; set; } = 384;
     public double BreathSeconds { get; set; } = 3.2;
     public double GlowSensitivity { get; set; } = 0.12;
-    public string GlowPreset { get; set; } = "neon";
+    public string GlowPreset { get; set; } = "neon-universal";
     public string CardTheme { get; set; } = "neon";
     public string GlowStyle { get; set; } = "sectors";
     public bool GlowOn { get; set; } = true;
@@ -29,6 +29,22 @@ public sealed class Settings
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
+    public static string NormalizePreset(string value)
+    {
+        switch ((value ?? "").Trim().ToLowerInvariant())
+        {
+            case "neon-calm":
+            case "calm":
+                return "neon-calm";
+            case "neon-hard":
+            case "fire":
+            case "hard":
+                return "neon-hard";
+            default:
+                return "neon-universal";
+        }
+    }
+
     public static Settings Load()
     {
         try
@@ -37,7 +53,16 @@ public sealed class Settings
             {
                 var json = File.ReadAllText(FilePath, System.Text.Encoding.UTF8);
                 var s = JsonSerializer.Deserialize<Settings>(json, Options);
-                if (s != null) return s;
+                if (s != null)
+                {
+                    var preset = NormalizePreset(s.GlowPreset);
+                    if (preset != s.GlowPreset)
+                    {
+                        s.GlowPreset = preset;
+                        s.Save();
+                    }
+                    return s;
+                }
             }
         }
         catch (Exception ex)
@@ -56,6 +81,7 @@ public sealed class Settings
                 if (s != null)
                 {
                     s.ToastOn = true;
+                    s.GlowPreset = NormalizePreset(s.GlowPreset);
                     s.Save();
                     Log.Write("settings migrated from v2");
                     return s;

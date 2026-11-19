@@ -41,7 +41,6 @@ public sealed class GlowManager
     private double _breathT;
     private double _level;
     private double _jolt;
-    private double _energy;
     private int _doubleTicks;
     private int _lastBeatCount = -1;
     private string _style = "";
@@ -272,33 +271,33 @@ public sealed class GlowManager
             }
             catch { }
 
+            var preset = PresetKey();
             if (_lastBeatCount < 0) _lastBeatCount = beatCount;
             if (beatCount != _lastBeatCount)
             {
                 _lastBeatCount = beatCount;
-                _jolt = 0.55 + 0.45 * strength;
-                Flash();
-                if (strength > 0.6) _doubleTicks = 3;
+                _jolt = JoltBase(preset) + JoltRange(preset) * strength;
+                Flash(preset);
+                if (strength > DoubleThreshold(preset)) _doubleTicks = 3;
             }
             if (_doubleTicks > 0)
             {
                 _doubleTicks--;
-                if (_doubleTicks == 0) { _jolt = 0.85; Flash(); }
+                if (_doubleTicks == 0) { _jolt = DoubleJolt(preset); Flash(preset); }
             }
-            _jolt *= 0.90;
+            _jolt *= JoltDecay(preset);
 
             if (level > _level) _level = level;
             else _level = _level * 0.90 + level * 0.10;
 
             double period = Period();
-            _energy = _energy * 0.995 + _level * 0.005;
 
             double op = 0;
             if (!_paused)
             {
                 var offsets = new[] { 0.0, 0.34, 0.18, 0.52 };
                 double breath = 0.5 + 0.5 * Math.Sin(2.0 * Math.PI * (_breathT + offsets[0]) / period);
-                op = 0.10 + 0.36 * breath + _level * 0.20 + _jolt * 0.65;
+                op = BaseOpacity(preset) + BreathAmp(preset) * breath + _level * LevelAmp(preset) + _jolt * JoltAmp(preset);
                 if (op < 0.01) op = 0;
                 if (op > 1.0) op = 1.0;
                 foreach (var edge in _edges)
@@ -314,27 +313,39 @@ public sealed class GlowManager
         catch { }
     }
 
+    private string PresetKey()
+    {
+        var p = (_settings.GlowPreset ?? "").Trim().ToLowerInvariant();
+        if (p == "neon-calm") return "calm";
+        if (p == "neon-hard") return "hard";
+        return "universal";
+    }
+
+    private static double BasePeriod(string p) => p switch { "calm" => 4.4, "hard" => 2.6, _ => 3.2 };
+    private static double BaseOpacity(string p) => p switch { "calm" => 0.08, "hard" => 0.12, _ => 0.10 };
+    private static double BreathAmp(string p) => p switch { "calm" => 0.30, "hard" => 0.42, _ => 0.36 };
+    private static double LevelAmp(string p) => p switch { "calm" => 0.16, "hard" => 0.26, _ => 0.20 };
+    private static double JoltAmp(string p) => p switch { "calm" => 0.42, "hard" => 0.85, _ => 0.65 };
+    private static double JoltBase(string p) => p switch { "calm" => 0.35, "hard" => 0.70, _ => 0.55 };
+    private static double JoltRange(string p) => p switch { "calm" => 0.35, "hard" => 0.50, _ => 0.45 };
+    private static double JoltDecay(string p) => p switch { "calm" => 0.88, "hard" => 0.925, _ => 0.90 };
+    private static double DoubleThreshold(string p) => p switch { "calm" => 0.80, "hard" => 0.45, _ => 0.60 };
+    private static double DoubleJolt(string p) => p switch { "calm" => 0.60, "hard" => 1.00, _ => 0.85 };
+    private static double FlashGrow(string p) => p switch { "calm" => 1.22, "hard" => 1.52, _ => 1.38 };
+    private static double FlashWide(string p) => p switch { "calm" => 1.10, "hard" => 1.24, _ => 1.18 };
+
     private double Period()
     {
-        double basePeriod = 3.2;
-        switch ((_settings.GlowPreset ?? "neon").ToLowerInvariant())
-        {
-            case "calm": basePeriod = 4.6; break;
-            case "fire": basePeriod = 2.2; break;
-            case "auto":
-                if (_energy > 0.62) basePeriod = 2.2;
-                else if (_energy < 0.28) basePeriod = 4.4;
-                else basePeriod = 3.2;
-                break;
-            default: basePeriod = 3.2; break;
-        }
+        double basePeriod = BasePeriod(PresetKey());
         double b = _settings.BreathSeconds;
         if (b > 0.5 && b < 12) basePeriod = basePeriod * (b / 3.2);
         return basePeriod;
     }
 
-    private void Flash()
+    private void Flash(string preset)
     {
+        double growTo = FlashGrow(preset);
+        double wideTo = FlashWide(preset);
         foreach (var edge in _edges)
         {
             bool horizontal = edge.Side == "top" || edge.Side == "bottom";
@@ -354,13 +365,13 @@ public sealed class GlowManager
             {
                 var delay = TimeSpan.FromMilliseconds(sector.Index * 8);
                 var dur = TimeSpan.FromMilliseconds(90);
-                var grow = new DoubleAnimation(1.0, 1.38, dur)
+                var grow = new DoubleAnimation(1.0, growTo, dur)
                 {
                     AutoReverse = true,
                     BeginTime = delay,
                     EasingFunction = EaseOut
                 };
-                var wide = new DoubleAnimation(1.0, 1.18, dur)
+                var wide = new DoubleAnimation(1.0, wideTo, dur)
                 {
                     AutoReverse = true,
                     BeginTime = delay,

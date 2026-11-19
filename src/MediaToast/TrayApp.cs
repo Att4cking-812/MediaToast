@@ -69,16 +69,16 @@ public sealed class TrayApp
     private readonly DispatcherTimer _timer;
     private bool _syncing;
     private DateTime _lastHide = DateTime.MinValue;
+    private DateTime _lastPresetClick = DateTime.MinValue;
 
     private static readonly CubicEase EaseOut = new() { EasingMode = EasingMode.EaseOut };
     private static readonly CubicEase EaseIn = new() { EasingMode = EasingMode.EaseIn };
 
     private static string PresetName(string preset) => preset switch
     {
-        "calm" => "спокойный",
-        "fire" => "огонь",
-        "auto" => "авто по треку",
-        _ => "неон"
+        "neon-calm" => "неон — спокойный",
+        "neon-hard" => "неон — агрессивный",
+        _ => "неон — универсальный"
     };
 
     private static string ThemeName(string theme) => theme switch
@@ -156,7 +156,9 @@ public sealed class TrayApp
         _pillVinyl.MouseLeftButtonUp += (_, _) => { _app.ToggleVinyl(); Refresh(); };
         _pillPreset.MouseLeftButtonUp += (_, _) =>
         {
-            var order = new[] { "calm", "neon", "fire", "auto" };
+            if ((DateTime.UtcNow - _lastPresetClick).TotalMilliseconds < 250) return;
+            _lastPresetClick = DateTime.UtcNow;
+            var order = new[] { "neon-calm", "neon-hard", "neon-universal" };
             var i = Array.IndexOf(order, _app.Settings.GlowPreset);
             _app.SetGlowPreset(order[(i + 1 + order.Length) % order.Length]);
             Refresh();
