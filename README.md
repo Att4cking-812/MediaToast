@@ -2,7 +2,7 @@
 
 Неоновая плашка «сейчас играет» в углу экрана, подсветка краёв под музыку, панель в трее и живая веб-страница. Теперь это одно приложение на **C# / WPF** и один установщик.
 
-Скачать: **[Releases → MediaToast-3.1.3-Setup.exe](https://github.com/Att4cking-812/MediaToast/releases/latest)**
+Скачать: **[Releases → MediaToast-3.1.4-Setup.exe](https://github.com/Att4cking-812/MediaToast/releases/latest)**
 
 Права администратора не нужны, .NET и PowerShell ставить не нужно — всё внутри установщика.
 
@@ -52,7 +52,7 @@
 
 ## Установка
 
-1. Скачай `MediaToast-3.1.3-Setup.exe` из [Releases](https://github.com/Att4cking-812/MediaToast/releases/latest).
+1. Скачай `MediaToast-3.1.4-Setup.exe` из [Releases](https://github.com/Att4cking-812/MediaToast/releases/latest).
 2. Запусти. Установщик спросит только автозапуск и (по желанию) ярлык на рабочем столе.
 3. Готово — в трее появится иконка, плашка и подсветка включатся сами.
 
@@ -83,7 +83,7 @@ dotnet publish MediaToast.csproj -c Release -r win-x64 --self-contained true -o 
 iscc installer.iss
 ```
 
-Готовый установщик появится в `dist\MediaToast-3.1.3-Setup.exe`.
+Готовый установщик появится в `dist\MediaToast-3.1.4-Setup.exe`.
 
 Исходники приложения: [`src/MediaToast`](src/MediaToast).
 

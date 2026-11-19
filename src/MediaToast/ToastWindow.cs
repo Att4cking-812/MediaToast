@@ -358,6 +358,8 @@ public sealed class ToastWindow
 
     public void SetArt(BitmapImage art)
     {
+        _coverArt.BeginAnimation(UIElement.OpacityProperty, null);
+        _coverArt.Opacity = 1;
         if (art != null)
         {
             var brush = new ImageBrush(art) { Stretch = Stretch.UniformToFill };
@@ -532,6 +534,13 @@ public sealed class ToastWindow
         {
             _artKey = artKey;
             ApplyBackdrop(art);
+            // обложка могла не успеть загрузиться к показу карточки —
+            // догоняем её, когда арт пришёл позже
+            if (_coverGlyph.Visibility == Visibility.Visible)
+            {
+                if (IsShown) FadeArt(art);
+                else SetArt(art);
+            }
         }
     }
 
