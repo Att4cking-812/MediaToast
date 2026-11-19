@@ -540,6 +540,7 @@ $script:vinylSpin = $null
 $script:glowAudio = $false
 $script:glowLevel = 0.0
 $script:jolt = 0.0
+$script:lvlSlow = 0.0
 $script:lastLevel = 0.0
 $script:energyAvg = 0.0
 $script:breathTimer = $null
@@ -703,6 +704,7 @@ function Start-GlowBreathing {
   $script:breathT = 0.0
   $script:glowLevel = 0.0
 $script:jolt = 0.0
+$script:lvlSlow = 0.0
 $script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
@@ -735,18 +737,20 @@ $script:lastLevel = 0.0
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
 
-          # рывок на резких всплесках (битах)
+          # рывок на резких всплесках (битах) — адаптивный порог
           $lvl = $script:glowLevel
-          if (($lvl - $script:lastLevel) -gt 0.16 -and $lvl -gt 0.35) { $script:jolt = 1.0 }
+          $script:lvlSlow = ($script:lvlSlow * 0.96) + ($lvl * 0.04)
+          if (($lvl -gt ($script:lvlSlow * 1.28)) -and ($lvl -gt 0.22)) { $script:jolt = 1.0 }
+          $script:jolt = $script:jolt * 0.86
           $script:lastLevel = $lvl
-          $script:jolt = $script:jolt * 0.78
 
           for ($i = 0; $i -lt $script:glowWindows.Count; $i++) {
             if ($paused) { $op = 0.0 }
             else {
               $phase = $script:breathT + $offsets[$i]
               $breath = 0.5 + 0.5 * [Math]::Sin((2.0 * [Math]::PI * $phase) / $period)
-              $op = 0.10 + (0.36 * $breath) + ($lvl * 0.22) + ($script:jolt * 0.55)
+              $sideJolt = $script:jolt * (1.0 - (0.12 * $i))
+              $op = 0.10 + (0.36 * $breath) + ($lvl * 0.20) + ($sideJolt * 0.65)
             }
             if ($op -lt 0.01) { $op = 0.0 }
             if ($op -gt 1.0) { $op = 1.0 }
