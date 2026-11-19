@@ -541,6 +541,7 @@ $script:glowAudio = $false
 $script:glowLevel = 0.0
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
+$script:doubleTicks = 0
 $script:lastLevel = 0.0
 $script:energyAvg = 0.0
 $script:breathTimer = $null
@@ -648,17 +649,21 @@ function New-GlowWindow([string]$side) {
   $soft.Fill = (New-GlowFill $side $script:glowColor 'soft')
   $core = New-Object Windows.Shapes.Rectangle
   $core.Fill = (New-GlowFill $side $script:glowColor 'core')
+  $flash = New-Object Windows.Shapes.Rectangle
+  $flash.Fill = New-Object Windows.Media.SolidColorBrush($script:glowColor)
+  $flash.Opacity = 0
 
   $softT = 84
   $coreT = 16
   switch ($side) {
-    'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT }
-    'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT }
-    'left'   { $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT }
-    'right'  { $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT }
+    'top'    { $soft.VerticalAlignment = 'Top'; $soft.Height = $softT; $core.VerticalAlignment = 'Top'; $core.Height = $coreT; $flash.VerticalAlignment = 'Top'; $flash.Height = $softT }
+    'bottom' { $soft.VerticalAlignment = 'Bottom'; $soft.Height = $softT; $core.VerticalAlignment = 'Bottom'; $core.Height = $coreT; $flash.VerticalAlignment = 'Bottom'; $flash.Height = $softT }
+    'left'   { $soft.HorizontalAlignment = 'Left'; $soft.Width = $softT; $core.HorizontalAlignment = 'Left'; $core.Width = $coreT; $flash.HorizontalAlignment = 'Left'; $flash.Width = $softT }
+    'right'  { $soft.HorizontalAlignment = 'Right'; $soft.Width = $softT; $core.HorizontalAlignment = 'Right'; $core.Width = $coreT; $flash.HorizontalAlignment = 'Right'; $flash.Width = $softT }
   }
   [void]$grid.Children.Add($soft)
   [void]$grid.Children.Add($core)
+  [void]$grid.Children.Add($flash)
   $w.Content = $grid
 
   $sw = [System.Windows.SystemParameters]::PrimaryScreenWidth
@@ -675,7 +680,7 @@ function New-GlowWindow([string]$side) {
   $w.Show()
   Set-ClickThrough $w
   $w.Visibility = 'Hidden'
-  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core }
+  $script:glowParts += [pscustomobject]@{ Side = $side; Soft = $soft; Core = $core; Flash = $flash }
   return $w
 }
 function Update-GlowColor($color) {
@@ -697,14 +702,27 @@ function Update-GlowColor($color) {
     try {
       $p.Core.Fill = (New-GlowFill $p.Side $color 'core')
       $p.Soft.Fill = (New-GlowFill $p.Side $sec 'soft')
+      $p.Flash.Fill = New-Object Windows.Media.SolidColorBrush($sec)
     } catch { }
   }
 }
+function Flash-Glow {
+  foreach ($p in $script:glowParts) {
+    try {
+      $p.Flash.Opacity = 0.42
+      $a = New-Object Windows.Media.Animation.DoubleAnimation(0.42, 0.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(300)))
+      $a.EasingFunction = $easeOut
+      $p.Flash.BeginAnimation([Windows.UIElement]::OpacityProperty, $a)
+    } catch { }
+  }
+}
+
 function Start-GlowBreathing {
   $script:breathT = 0.0
   $script:glowLevel = 0.0
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
+$script:doubleTicks = 0
 $script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
@@ -740,7 +758,17 @@ $script:lastLevel = 0.0
           # рывок на резких всплесках (битах) — адаптивный порог
           $lvl = $script:glowLevel
           $script:lvlSlow = ($script:lvlSlow * 0.96) + ($lvl * 0.04)
-          if (($lvl -gt ($script:lvlSlow * 1.28)) -and ($lvl -gt 0.22)) { $script:jolt = 1.0 }
+          $hit = $false
+          if (($lvl -gt ($script:lvlSlow * 1.28)) -and ($lvl -gt 0.22)) {
+            $script:jolt = 1.0
+            $hit = $true
+            if ($lvl -gt ($script:lvlSlow * 1.55)) { $script:doubleTicks = 3 }
+          }
+          if ($hit) { Flash-Glow }
+          if ($script:doubleTicks -gt 0) {
+            $script:doubleTicks--
+            if ($script:doubleTicks -eq 0) { $script:jolt = 0.85; Flash-Glow }
+          }
           $script:jolt = $script:jolt * 0.86
           $script:lastLevel = $lvl
 
