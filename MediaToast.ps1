@@ -49,14 +49,23 @@ try { Set-Content -LiteralPath $pidPath -Value $PID -Encoding ASCII } catch { }
 # ---------------------------------------------------------------- громкость
 $csPath = Join-Path $PSScriptRoot 'AudioEndpoint.cs'
 $meterPath = Join-Path $PSScriptRoot 'AppMeter.cs'
+$bassPath = Join-Path $PSScriptRoot 'BassMeter.cs'
 try {
   $sources = @($csPath)
   if (Test-Path -LiteralPath $meterPath) { $sources += $meterPath }
+  if (Test-Path -LiteralPath $bassPath) { $sources += $bassPath }
   Add-Type -Path $sources -ErrorAction Stop
 } catch {
   Write-Log ('audio compile fail: ' + $_.Exception.Message)
   try { Add-Type -TypeDefinition ([IO.File]::ReadAllText($csPath, [Text.Encoding]::UTF8)) -Language CSharp } catch { }
 }
+
+# захват баса из системного микса (не зависит от капризов микшерного метра)
+try {
+  [BrickyardBass.BassMeter]::Start()
+  Start-Sleep -Milliseconds 150
+  Write-Log ('bass meter: running=' + [BrickyardBass.BassMeter]::IsRunning + ' error=' + [BrickyardBass.BassMeter]::LastError)
+} catch { Write-Log ('bass meter fail: ' + $_.Exception.Message) }
 
 # ---------------------------------------------------------------- WinRT медиа
 $asTaskGeneric = ([System.WindowsRuntimeSystemExtensions].GetMethods() | Where-Object {
@@ -476,6 +485,7 @@ $script:glowFlag = Join-Path $PSScriptRoot 'glow.on'
 $script:glowWindows = @()
 $script:glowParts = @()
 $script:glowShown = $false
+$script:glowRebuild = $false
 $script:glowColor = [Windows.Media.Color]::FromRgb(111, 216, 255)
 $script:glowKey = ''
 $script:glowVol = -1
@@ -491,6 +501,7 @@ function Get-DefaultSettings {
     glowSensitivity = 0.12
     glowPreset      = 'neon'
     cardTheme       = 'neon'
+    glowStyle       = 'sectors'
   }
 }
 
@@ -510,6 +521,7 @@ function Load-Settings {
 
 function Apply-Settings {
   $s = Load-Settings
+  if ($script:settings -and ([string]$script:settings.glowStyle -ne [string]$s.glowStyle)) { $script:glowRebuild = $true }
   $script:settings = $s
   try {
     if ($card) {
@@ -542,7 +554,9 @@ $script:glowLevel = 0.0
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
+$script:lastBeatCount = -1
 $script:lastHit = [DateTime]::MinValue
+$script:prevRaw = 0.0
 $script:dbgAt = [DateTime]::MinValue
 $script:lastLevel = 0.0
 $script:energyAvg = 0.0
@@ -650,6 +664,9 @@ function New-GlowWindow([string]$side) {
   $sh = [System.Windows.SystemParameters]::PrimaryScreenHeight
   $thick = 72
   $segments = 8
+  $style = 'sectors'
+  if ($script:settings -and $script:settings.glowStyle) { $style = [string]$script:settings.glowStyle }
+  if ($style -eq 'strips') { $thick = 84; $segments = 1 }
 
   switch ($side) {
     'top'    { $w.Left = 0; $w.Top = 0; $w.Width = $sw; $w.Height = $thick }
@@ -722,6 +739,14 @@ function Update-GlowColor($color) {
 function Flash-Glow {
   foreach ($p in $script:glowParts) {
     try {
+      if ($p.Sectors.Count -le 1) {
+        $b = $p.Sectors[0].Border
+        $a = New-Object Windows.Media.Animation.DoubleAnimation(0.75, 1.0, [Windows.Duration]([TimeSpan]::FromMilliseconds(140)))
+        $a.AutoReverse = $true
+        $a.EasingFunction = $easeOut
+        $b.BeginAnimation([Windows.UIElement]::OpacityProperty, $a)
+        continue
+      }
       $horizontal = ($p.Side -eq 'top' -or $p.Side -eq 'bottom')
       foreach ($s in $p.Sectors) {
         $delay = $s.Index * 8
@@ -754,25 +779,18 @@ function Start-GlowBreathing {
 $script:jolt = 0.0
 $script:lvlSlow = 0.0
 $script:doubleTicks = 0
+$script:lastBeatCount = -1
 $script:lastHit = [DateTime]::MinValue
+$script:prevRaw = 0.0
 $script:dbgAt = [DateTime]::MinValue
 $script:lastLevel = 0.0
   if (-not $script:breathTimer) {
     $script:breathTimer = New-Object Windows.Threading.DispatcherTimer
-    $script:breathTimer.Interval = [TimeSpan]::FromMilliseconds(40)
+    $script:breathTimer.Interval = [TimeSpan]::FromMilliseconds(25)
     $script:breathTimer.Add_Tick({
         try {
           if (-not $script:glowShown -or $script:glowWindows.Count -eq 0) { return }
-          $script:breathT += 0.04
-
-          # уровень музыки (только сессия плеера)
-          $peak = 0.0
-          try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
-          $sens = 0.12
-          if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
-          $target = [Math]::Pow([Math]::Min(1.0, $peak / $sens), 0.7)
-          if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
-          else { $script:glowLevel = ($script:glowLevel * 0.86) + ($target * 0.14) }
+          $script:breathT += 0.025
 
           $period = if ($script:presetPeriod) { [double]$script:presetPeriod } else { 3.2 }
           $amp = if ($script:presetAmp) { [double]$script:presetAmp } else { 0.21 }
@@ -788,27 +806,56 @@ $script:lastLevel = 0.0
           $offsets = @(0.0, 0.34, 0.18, 0.52)
           $paused = ($script:lastStatus -ne 'Playing')
 
-          # бит-детект по «сырому» пику, не по сглаженному уровню
-          $peak = 0.0
-          try { $peak = [double][BrickyardAudio.AppMeter]::GetMusicPeak() } catch { }
-          $sens = 0.12
-          if ($script:settings -and [double]$script:settings.glowSensitivity -gt 0.01) { $sens = [double]$script:settings.glowSensitivity }
-          $raw = [Math]::Pow([Math]::Min(1.0, $peak / 0.45), 0.7)
-          $script:lvlSlow = ($script:lvlSlow * 0.93) + ($raw * 0.07)
-          $nowT = [DateTime]::UtcNow
-          $sinceHit = ($nowT - $script:lastHit).TotalMilliseconds
+          # уровень баса и удары из loopback-захвата
+          $bassOk = $false
+          $beatNow = 0
+          $bassLevel = 0.0
+          try {
+            $bassOk = [BrickyardBass.BassMeter]::IsRunning
+            if ($bassOk) {
+              $beatNow = [BrickyardBass.BassMeter]::BeatCount
+              $bassLevel = [double][BrickyardBass.BassMeter]::Level
+            }
+          } catch { }
 
-          if (($raw -gt ($script:lvlSlow * 1.18 + 0.02)) -and ($raw -gt 0.15) -and ($sinceHit -gt 60)) {
-            $script:jolt = 1.0
-            $script:lastHit = $nowT
-            Flash-Glow
-            if ($raw -gt ($script:lvlSlow * 1.45 + 0.05)) { $script:doubleTicks = 3 }
+          if ($bassOk) {
+            if ($script:lastBeatCount -lt 0) { $script:lastBeatCount = $beatNow }
+            if ($beatNow -ne $script:lastBeatCount) {
+              $script:lastBeatCount = $beatNow
+              $bst = 0.6
+              try { $bst = [double][BrickyardBass.BassMeter]::LastStrength } catch { }
+              $script:jolt = 0.55 + (0.45 * $bst)
+              Flash-Glow
+              if ($bst -gt 0.6) { $script:doubleTicks = 3 }
+            }
+          } else {
+            # запасной вариант: пик устройства
+            $peak = 0.0
+            try { $peak = [double][BrickyardAudio.AppMeter]::DevicePeak() } catch { }
+            $raw = [Math]::Pow([Math]::Min(1.0, $peak / 0.45), 0.7)
+            $script:lvlSlow = ($script:lvlSlow * 0.93) + ($raw * 0.07)
+            $nowT = [DateTime]::UtcNow
+            $delta = $raw - $script:prevRaw
+            $script:prevRaw = $raw
+            $sinceHit = ($nowT - $script:lastHit).TotalMilliseconds
+            if ((($delta -gt 0.09) -or ($raw -gt ($script:lvlSlow * 1.12 + 0.04))) -and ($raw -gt 0.18) -and ($sinceHit -gt 110)) {
+              $script:jolt = 1.0
+              $script:lastHit = $nowT
+              Flash-Glow
+              if ($raw -gt ($script:lvlSlow * 1.45 + 0.05)) { $script:doubleTicks = 3 }
+            }
+            $bassLevel = $raw
           }
+
           if ($script:doubleTicks -gt 0) {
             $script:doubleTicks--
             if ($script:doubleTicks -eq 0) { $script:jolt = 0.85; Flash-Glow }
           }
-          $script:jolt = $script:jolt * 0.86
+          $script:jolt = $script:jolt * 0.90
+
+          $target = $bassLevel
+          if ($target -gt $script:glowLevel) { $script:glowLevel = $target }
+          else { $script:glowLevel = ($script:glowLevel * 0.90) + ($target * 0.10) }
           $lvl = $script:glowLevel
           $script:lastLevel = $lvl
 
@@ -1228,7 +1275,8 @@ $hideTimer.Add_Tick({
 
 # смена текста на видимой карточке: короткий кроссфейд
 $script:pendingText = $null
-$swapTimer = New-Object Windows.Threading.DispatcherTimer$swapTimer.Add_Tick({
+$swapTimer = New-Object Windows.Threading.DispatcherTimer
+$swapTimer.Add_Tick({
     try {
       $swapTimer.Stop()
       $pending = $script:pendingText
@@ -1539,6 +1587,14 @@ $glowTimer.Interval = [TimeSpan]::FromSeconds(1)
 $glowTimer.Add_Tick({
     try {
       $on = Test-Path -LiteralPath $script:glowFlag
+      if ($script:glowRebuild) {
+        $script:glowRebuild = $false
+        foreach ($w in $script:glowWindows) { try { $w.Close() } catch { } }
+        $script:glowWindows = @()
+        $script:glowParts = @()
+        $script:glowShown = $false
+        if ($script:breathTimer) { $script:breathTimer.Stop() }
+      }
       if ($on -and -not $script:glowShown) {
         Show-Glow
         if ($script:lastTrack -and $script:lastTrack.Art) {
@@ -1639,6 +1695,7 @@ function Register-Hotkeys {
 }
 
 $app = New-Object Windows.Application
+$app.ShutdownMode = [Windows.ShutdownMode]::OnExplicitShutdown
 $app.Add_DispatcherUnhandledException({
     param($sender, $e)
     try { Write-Log ('dispatcher error: ' + $e.Exception.Message) } catch { }
