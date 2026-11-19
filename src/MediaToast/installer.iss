@@ -1,5 +1,5 @@
-#define MyAppName "MediaToast"
-#define MyAppVersion "3.1.0"
+﻿#define MyAppName "MediaToast"
+#define MyAppVersion "3.1.1"
 #define MyAppPublisher "Att4cking-812"
 #define MyAppURL "https://github.com/Att4cking-812/MediaToast"
 #define MyAppExeName "MediaToast.exe"

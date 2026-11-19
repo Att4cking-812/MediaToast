@@ -52,8 +52,12 @@ namespace BrickyardBass {
             int GetNextPacketSize(out uint frames);
         }
 
-        [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")]
-        internal class MMDeviceEnumeratorComObject { }
+        private static readonly Guid CLSID_MMDeviceEnumerator = new Guid("BCDE0395-E52F-467C-8E3D-C4579291692E");
+
+        private static IMMDeviceEnumerator CreateDeviceEnumerator() {
+            var type = Type.GetTypeFromCLSID(CLSID_MMDeviceEnumerator);
+            return (IMMDeviceEnumerator)Activator.CreateInstance(type);
+        }
 
         [ComImport, Guid("41D949AB-9862-444A-80F6-C261334DA5EB"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
         public interface IActivateAudioInterfaceCompletionHandler {
@@ -238,7 +242,7 @@ namespace BrickyardBass {
                 int flags = AUDCLNT_STREAMFLAGS_LOOPBACK;
                 if (source == "system") {
                     pid = 0;
-                    var enumerator = (IMMDeviceEnumerator)(new MMDeviceEnumeratorComObject());
+                    var enumerator = CreateDeviceEnumerator();
                     IMMDevice device;
                     hr = enumerator.GetDefaultAudioEndpoint(0, 1, out device);
                     if (hr < 0 || device == null) { lastError = "no device " + hr; return; }
