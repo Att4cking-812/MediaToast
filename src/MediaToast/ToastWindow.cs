@@ -60,6 +60,7 @@ public sealed class ToastWindow
     private bool _eqPlaying;
     private bool _vinyl;
     private bool _vinylSpinning;
+    private bool _pinned;
     private Color _accent = Color.FromRgb(111, 216, 255);
     private string _artKey = "";
 
@@ -250,13 +251,30 @@ public sealed class ToastWindow
         FadeArt(track.Art);
         UpdateProgress(track);
         _holdTimer.Stop();
-        _holdTimer.Interval = TimeSpan.FromMilliseconds(5600);
-        _holdTimer.Start();
+        if (!_pinned)
+        {
+            _holdTimer.Interval = TimeSpan.FromMilliseconds(5600);
+            _holdTimer.Start();
+        }
+    }
+
+    public void SetPinned(bool pinned)
+    {
+        _pinned = pinned;
+        if (pinned)
+        {
+            _holdTimer.Stop();
+        }
+        else if (IsShown && !_volumeMode)
+        {
+            StartHold(5600);
+        }
     }
 
     private void StartHold(int ms)
     {
         _holdTimer.Stop();
+        if (_pinned && !_volumeMode) return;
         _holdTimer.Interval = TimeSpan.FromMilliseconds(ms);
         _holdTimer.Start();
     }

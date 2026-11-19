@@ -354,7 +354,7 @@ public sealed class TrayApp
     {
         var s = _app.Settings;
 
-        SetState(_toastState, _toastDot, s.ToastOn, s.ToastOn ? "вкл" : "выкл");
+        SetState(_toastState, _toastDot, s.ToastOn, !s.ToastOn ? "выкл" : (s.ToastPinned ? "закреплена" : "авто"));
         SetState(_autoState, _autoDot, Autostart.Enabled, Autostart.Enabled ? "вкл" : "выкл");
         SetState(_glowState, _glowDot, s.GlowOn, s.GlowOn ? "вкл — в цвет обложки" : "выкл");
         SetState(_vinylState, _vinylDot, s.VinylOn, s.VinylOn ? "вкл — круг крутится" : "выкл");

@@ -63,6 +63,7 @@ public sealed class ToastApp
         _volumeTimer.Tick += OnVolumeTick;
 
         _toast.SetVinyl(_settings.VinylOn);
+        _toast.SetPinned(_settings.ToastPinned);
         _glow.SetEnabled(_settings.GlowOn);
         _web = new WebServer(this);
         _tray = new TrayApp(this);
@@ -104,9 +105,9 @@ public sealed class ToastApp
                         else _toast.RefreshTrack(track);
                     }
                 }
-                else if (playing && _lastStatus != "Playing" && _settings.ToastOn && ShouldShow(track))
+                else if (playing && _lastStatus != "Playing" && _settings.ToastOn)
                 {
-                    _toast.ShowTrack(track);
+                    if (_settings.ToastPinned || ShouldShow(track)) _toast.ShowTrack(track);
                 }
                 else if (!playing && track.Status == "Paused" && _lastStatus == "Playing" && _settings.ToastOn
                          && (track.Art != null || !string.IsNullOrEmpty(track.Artist) || track.Duration.TotalSeconds >= 20))
@@ -191,6 +192,12 @@ public sealed class ToastApp
                 }
             }
 
+            if (_settings.ToastOn && _settings.ToastPinned && !_toast.IsShown && _lastTrack != null
+                && !string.IsNullOrEmpty(_lastTrack.Title) && (_lastStatus == "Playing" || _lastStatus == "Paused"))
+            {
+                _toast.ShowTrack(_lastTrack, _lastStatus == "Paused");
+            }
+
             if (_lastTrack != null && !_toast.VolumeMode && _toast.IsShown && _lastStatus == "Playing")
             {
                 _toast.UpdateProgress(_lastTrack);
@@ -269,10 +276,31 @@ public sealed class ToastApp
 
     public void ToggleToast()
     {
-        _settings.ToastOn = !_settings.ToastOn;
+        if (!_settings.ToastOn)
+        {
+            _settings.ToastOn = true;
+            _settings.ToastPinned = false;
+        }
+        else if (!_settings.ToastPinned)
+        {
+            _settings.ToastPinned = true;
+        }
+        else
+        {
+            _settings.ToastOn = false;
+            _settings.ToastPinned = false;
+        }
         _settings.Save();
-        if (!_settings.ToastOn) _toast.HideNow();
-        Log.Write("toast " + (_settings.ToastOn ? "on" : "off"));
+        _toast.SetPinned(_settings.ToastPinned);
+        if (!_settings.ToastOn)
+        {
+            _toast.HideNow();
+        }
+        else if (_lastTrack != null && !string.IsNullOrEmpty(_lastTrack.Title))
+        {
+            _toast.ShowTrack(_lastTrack, _lastStatus == "Paused");
+        }
+        Log.Write("toast " + (_settings.ToastOn ? (_settings.ToastPinned ? "pinned" : "auto") : "off"));
     }
 
     public void SetGlowPreset(string preset)
@@ -330,6 +358,7 @@ public sealed class ToastApp
         _glow.ApplySettings(s);
         _glow.SetEnabled(s.GlowOn);
         _toast.SetVinyl(s.VinylOn);
+        _toast.SetPinned(s.ToastPinned);
         _toast.SetPlayingForVinyl(_lastStatus == "Playing");
     }
 

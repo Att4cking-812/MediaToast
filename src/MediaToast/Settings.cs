@@ -22,6 +22,7 @@ public sealed class Settings
     public string GlowSource { get; set; } = "system";
     public bool GlowOn { get; set; } = true;
     public bool ToastOn { get; set; } = true;
+    public bool ToastPinned { get; set; } = false;
     public bool VinylOn { get; set; } = false;
 
     private static readonly JsonSerializerOptions Options = new()
